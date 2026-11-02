@@ -8,6 +8,9 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#181a1d">
+<meta name="color-scheme" content="only light">
+<meta name="supported-color-schemes" content="light">
+<meta name="darkreader-lock">
 <script>try{if(localStorage.getItem("honamTheme")==="white")document.documentElement.setAttribute("data-theme","white")}catch(e){}</script>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -15,7 +18,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#e9e9ea;--panel:#f2f2f3;--ink:#1d1f20;--sub:rgba(29,31,32,.58);--pri:#5980a6;--pri2:#416180;--hd:#181a1d;--hd2:#94bce3;--bd:rgba(29,31,32,.16);--bdl:rgba(29,31,32,.1);--ora:#e8590c;--grn:#2b8a3e}
+:root{color-scheme:only light;--bg:#e9e9ea;--panel:#f2f2f3;--ink:#1d1f20;--sub:rgba(29,31,32,.58);--pri:#5980a6;--pri2:#416180;--hd:#181a1d;--hd2:#94bce3;--bd:rgba(29,31,32,.16);--bdl:rgba(29,31,32,.1);--ora:#e8590c;--grn:#2b8a3e}
 *{box-sizing:border-box;margin:0}
 html{-webkit-text-size-adjust:100%}
 body{font-family:Barlow,-apple-system,"Malgun Gothic","Apple SD Gothic Neo",sans-serif;color:var(--ink);background-color:var(--bg);
@@ -103,7 +106,7 @@ footer{max-width:980px;margin:6px auto 0;padding:0 14px;font-size:12px;color:var
 .thm button{font:600 11.5px Barlow,"Malgun Gothic",sans-serif;padding:4px 10px;min-height:28px;background:transparent;border:0;color:var(--hd2);cursor:pointer}
 .thm button.on{background:var(--hd2);color:#181a1d}
 html[data-theme=white]{--bg:#fff;--panel:#fff;--hd:#fff;--hd2:#416180;--bd:rgba(29,31,32,.22);--bdl:rgba(29,31,32,.12)}
-html[data-theme=white] body{background-image:none;background-color:#fff}
+html[data-theme=white],html[data-theme=white] body{background-image:none!important;background-color:#fff!important}
 html[data-theme=white] header{color:var(--ink);border-bottom:1px solid var(--bd)}
 html[data-theme=white] .dday b{color:var(--ink)}
 html[data-theme=white] nav button{color:var(--sub)}
