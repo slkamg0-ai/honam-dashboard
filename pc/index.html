@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>호남고속선 재해예방공사 · 공정계획 입력</title>
+<link rel="icon" href="../icon.svg" type="image/svg+xml">
+<meta name="color-scheme" content="only light">
+<meta name="robots" content="noindex,nofollow">
+<style>
+:root{color-scheme:only light;--bg:#e9e9ea;--panel:#f6f6f7;--ink:#1d1f20;--sub:rgba(29,31,32,.6);--pri:#5980a6;--pri2:#416180;--hd:#181a1d;--hd2:#94bce3;--bd:rgba(29,31,32,.18);--bdl:rgba(29,31,32,.1);--ora:#e8590c;--grn:#2b8a3e;--red:#c92a2a;--yel:#f5c518}
+*{box-sizing:border-box;margin:0}
+body{font:14px/1.45 Barlow,-apple-system,"Malgun Gothic","Apple SD Gothic Neo",sans-serif;color:var(--ink);background:var(--bg);min-height:100vh}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+.hide{display:none!important}
+.login{max-width:380px;margin:12vh auto;background:#fff;border:1px solid var(--bd);padding:28px}
+.login h1{font-size:19px;margin-bottom:4px}.login p{color:var(--sub);font-size:13px;margin-bottom:16px}
+.fld{display:block;margin-bottom:12px}.fld span{display:block;font-size:12px;font-weight:600;color:var(--sub);margin-bottom:3px}
+.fld input,.fld select,.fld textarea{width:100%;padding:8px 10px;border:1px solid var(--bd);background:#fff;min-height:36px}
+.btn{border:1px solid var(--pri);background:var(--pri);color:#fff;padding:7px 14px;font-weight:600;min-height:34px}
+.btn:hover{background:var(--pri2)}.btn.ghost{background:#fff;color:var(--pri2)}.btn.ghost:hover{background:#eef3f8}
+.btn.red{background:var(--red);border-color:var(--red)}.btn.sm{padding:3px 9px;min-height:26px;font-size:12.5px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.err{color:var(--red);font-size:13px;margin:6px 0;min-height:18px}
+.ok{color:var(--grn);font-size:13px}
+#app{display:grid;grid-template-columns:190px 1fr;grid-template-rows:auto 1fr;min-height:100vh}
+header{grid-column:1/3;background:var(--hd);color:#fff;display:flex;align-items:center;gap:18px;padding:10px 18px}
+header h1{font-size:16px;font-weight:700;flex:1}header h1 small{display:block;color:var(--hd2);font-weight:400;font-size:12px}
+header .who{font-size:13px;color:var(--hd2);text-align:right}header .who b{color:#fff}
+header .dd b{font-size:24px;font-weight:700;color:#fff;line-height:1}header .dd span{display:block;font-size:11px;color:var(--hd2);text-align:right}
+header button{background:transparent;border:1px solid var(--hd2);color:var(--hd2);padding:4px 10px;min-height:28px}
+aside{background:#fff;border-right:1px solid var(--bd);padding:10px 0}
+aside button{display:flex;justify-content:space-between;align-items:center;width:100%;text-align:left;border:0;border-left:4px solid transparent;background:transparent;padding:11px 16px;font-weight:600;color:var(--ink)}
+aside button:hover{background:#f0f3f6}aside button.on{border-left-color:var(--pri);background:#e8eff6;color:var(--pri2)}
+aside .cnt{background:var(--ora);color:#fff;font-size:11px;border-radius:9px;padding:0 6px;min-width:18px;text-align:center}
+main{padding:16px 20px 60px;overflow:auto;min-width:0}
+.top{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.top h2{font-size:18px;margin-right:8px}.top .sp{flex:1}
+.top select,.top input[type=month],.top input[type=date]{padding:5px 8px;border:1px solid var(--bd);background:#fff;min-height:32px}
+.card{background:var(--panel);border:1px solid var(--bd);padding:12px 14px;margin-bottom:14px;position:relative}
+.card h3{font-size:14.5px;margin-bottom:8px;display:flex;justify-content:space-between;gap:8px}.card h3 small{font-weight:400;color:var(--sub);font-size:12px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:14px}
+.kpi{background:var(--panel);border:1px solid var(--bd);padding:10px 14px}.kpi .l{font-size:12px;color:var(--sub);font-weight:600}.kpi .v{font-size:28px;font-weight:700;line-height:1.2}.kpi .v small{font-size:13px;color:var(--sub);margin-left:2px}.kpi .d{font-size:12px;color:var(--sub)}
+table.t{width:100%;border-collapse:collapse;background:#fff;font-size:13px}
+table.t th{background:#dde6ee;font-weight:700;text-align:left;padding:6px 8px;border:1px solid var(--bd);position:sticky;top:0;z-index:2;white-space:nowrap}
+table.t td{padding:4px 6px;border:1px solid var(--bdl);vertical-align:top}
+table.t tr.lock td{background:#f3f6f3}table.t tr.dirty td{background:#fff8e1}
+table.t input[type=text],table.t input[type=number],table.t select,table.t textarea{width:100%;border:1px solid transparent;background:transparent;padding:3px 4px;min-height:26px}
+table.t input:hover,table.t select:hover,table.t textarea:hover{border-color:var(--bd)}table.t input:focus,table.t textarea:focus,table.t select:focus{border-color:var(--pri);background:#fff;outline:0}
+table.t textarea{resize:vertical;min-height:40px}
+table.t input:disabled,table.t textarea:disabled,table.t select:disabled{color:var(--ink);opacity:1;-webkit-text-fill-color:var(--ink)}
+.num{text-align:right}
+.badge{display:inline-block;font-size:11.5px;padding:1px 8px;border:1px solid var(--bd);background:#fff;white-space:nowrap}
+.b-작성중{background:#e9ecef}.b-제출{background:#fff0e0;border-color:var(--ora);color:#a33f00}.b-확정{background:#e3f4e6;border-color:var(--grn);color:#1c6a2b}.b-반려{background:#fde8e8;border-color:var(--red);color:var(--red)}.b-미작성{color:var(--sub)}.b-취소{color:var(--sub);text-decoration:line-through}
+.chips{display:flex;gap:6px;flex-wrap:wrap}.chip{border:1px solid var(--bd);background:#fff;padding:3px 12px;min-height:30px}.chip.on{background:var(--pri);color:#fff;border-color:var(--pri)}
+.note{font-size:12.5px;color:var(--sub);margin:6px 0}
+.tot{margin-top:10px;display:flex;gap:24px;font-size:13.5px;flex-wrap:wrap}.tot b{font-size:16px}
+/* gantt */
+.gwrap{overflow:auto;background:#fff;border:1px solid var(--bd);max-height:calc(100vh - 190px)}
+.g{position:relative}
+.g .row{display:flex;height:30px;border-bottom:1px solid var(--bdl);align-items:center}
+.g .row.h{background:#dde6ee;position:sticky;top:0;z-index:5;height:28px;font-weight:700}
+.g .row.crew{background:#eef2f6;font-weight:700;height:24px}
+.g .lab{flex:0 0 230px;position:sticky;left:0;z-index:4;background:inherit;background-color:#fff;padding:0 8px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;border-right:1px solid var(--bd);cursor:pointer;font-size:12.5px;height:100%;display:flex;align-items:center}
+.g .row.h .lab,.g .row.crew .lab{background:inherit;cursor:default}
+.g .row.crew .lab{background:#eef2f6}.g .row.h .lab{background:#dde6ee}
+.g .lab:hover{background:#eaf1f8}
+.g .lane{position:relative;height:100%}
+.g .bar{position:absolute;top:6px;height:15px;background:var(--pri);border-radius:2px;cursor:pointer}
+.g .bar.pend{top:21px;height:6px;background:repeating-linear-gradient(45deg,var(--ora),var(--ora) 4px,#fff 4px,#fff 7px);border:1px solid var(--ora)}
+.g .bar.orig{top:3px;height:3px;background:#7a7f85}
+.g .stop{position:absolute;top:0;bottom:0;background:rgba(120,120,130,.16);pointer-events:none;z-index:1}
+.g .today{position:absolute;top:0;bottom:0;width:2px;background:var(--red);z-index:3;pointer-events:none}
+.g .mt{position:absolute;top:0;height:100%;border-left:1px solid var(--bd);padding-left:3px;font-size:11px;white-space:nowrap}
+.g .mline{position:absolute;top:0;bottom:0;border-left:1px solid var(--bdl);pointer-events:none}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:430px;background:#fff;border-left:2px solid var(--pri);box-shadow:-6px 0 18px rgba(0,0,0,.18);z-index:30;padding:16px;overflow:auto}
+.drawer h3{font-size:16px;margin-bottom:2px}.drawer .x{position:absolute;top:8px;right:10px;border:0;background:transparent;font-size:22px}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:50;display:flex;align-items:center;justify-content:center;padding:30px}
+.modal .box{background:#fff;max-width:92vw;max-height:92vh;overflow:auto;padding:12px;position:relative}.modal img{max-width:88vw;max-height:80vh;display:block}
+.drop{border:2px dashed var(--pri);background:#f0f5fa;padding:26px;text-align:center;color:var(--pri2);cursor:pointer}.drop.over{background:#dcebf8}
+#busy{position:fixed;left:0;top:0;height:3px;width:0;background:var(--ora);z-index:99;transition:width .4s}
+#toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:#222;color:#fff;padding:9px 18px;z-index:99;max-width:80vw;display:none}
+#toast.e{background:var(--red)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:1000px){#app{grid-template-columns:1fr}aside{display:flex;overflow-x:auto}aside button{width:auto;white-space:nowrap}.grid2{grid-template-columns:1fr}.drawer{width:100%}}
+</style></head><body>
+<div id="busy"></div><div id="toast"></div>
+
+<div id="setup" class="hide"><div class="login">
+ <h1>서버 주소 설정</h1><p>처음 한 번만 입력합니다. 관리자가 알려준 웹 앱 주소(https://script.google.com/…/exec)를 붙여넣으세요.</p>
+ <label class="fld"><span>웹 앱 주소</span><input id="apiIn" type="text" placeholder="https://script.google.com/macros/s/…/exec"></label>
+ <div class="err" id="apiErr"></div><button class="btn" id="apiGo">저장</button>
+</div></div>
+
+<div id="login-wrap" class="hide"><div class="login">
+ <h1>호남고속선 재해예방공사</h1><p>공정계획 입력·확인 (직원용)</p>
+ <label class="fld"><span>이름</span><input id="lgName" type="text" autocomplete="username"></label>
+ <label class="fld"><span>PIN</span><input id="lgPin" type="password" autocomplete="current-password"></label>
+ <div class="err" id="lgErr"></div>
+ <button class="btn" id="lgGo" style="width:100%">로그인</button>
+</div></div>
+
+<div id="pin-wrap" class="hide"><div class="login">
+ <h1>새 PIN 설정</h1><p>처음 로그인했거나 PIN이 초기화되었습니다. 본인만 아는 PIN(영문·숫자 6자 이상)으로 바꿔주세요.</p>
+ <label class="fld"><span>새 PIN</span><input id="pn1" type="password" autocomplete="new-password"></label>
+ <label class="fld"><span>새 PIN 확인</span><input id="pn2" type="password" autocomplete="new-password"></label>
+ <div class="err" id="pnErr"></div><button class="btn" id="pnGo" style="width:100%">변경하고 시작</button>
+</div></div>
+
+<div id="app" class="hide">
+ <header><h1>호남고속선 정읍~광주송정 등 28개소 재해예방공사<small>공정계획 입력·승인 · 국가철도공단 호남본부 / (주)동우건설</small></h1>
+  <div class="dd"><b id="dd">-</b><span>준공기한까지</span></div>
+  <div class="who"><b id="whoN"></b><br><span id="whoR"></span></div>
+  <button id="refBtn">새로고침</button><button id="pinBtn">PIN 변경</button><button id="outBtn">로그아웃</button></header>
+ <aside id="side"></aside>
+ <main id="main"></main>
+</div>
+<div id="drawer" class="drawer hide"></div>
+<div id="modal" class="modal hide"></div>
+
+<script src="config.js"></script>
+<script>
+(function(){
+'use strict';
+var CFG=window.PC_CONFIG||{};
+function $(id){return document.getElementById(id)}
+function esc(s){return String(s===null||s===undefined?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+/* ---------- 날짜 ---------- */
+function d2n(s){var p=String(s).split('-');return Math.round(Date.UTC(+p[0],+p[1]-1,+p[2])/864e5)}
+function n2d(n){var d=new Date(n*864e5);return d.getUTCFullYear()+'-'+('0'+(d.getUTCMonth()+1)).slice(-2)+'-'+('0'+d.getUTCDate()).slice(-2)}
+function todayStr(){if(window.__TODAY)return window.__TODAY;var d=new Date();return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2)}
+function mondayOf(s){var n=d2n(s),w=(new Date(n*864e5)).getUTCDay();return n2d(n-((w+6)%7))}
+function monthEnd(m){var p=m.split('-');return n2d(Math.round(Date.UTC(+p[0],+p[1],1)/864e5)-1)}
+function addMonth(m,k){var p=m.split('-'),t=(+p[0])*12+(+p[1]-1)+k;return Math.floor(t/12)+'-'+('0'+(t%12+1)).slice(-2)}
+function fmt(s){return s?s.slice(2).replace(/-/g,'.'):''}
+var WD=['일','월','화','수','목','금','토'];
+function fmtW(s){var n=d2n(s);return fmt(s)+' ~ '+n2d(n+6).slice(5).replace('-','.')}
+/* ---------- API ---------- */
+function apiUrl(){
+ try{if(/^(localhost|127\.0\.0\.1)$/.test(location.hostname)){var q=new URLSearchParams(location.search).get('api');if(q)return q}}catch(e){}
+ var u=CFG.API_URL||'';if(!u){try{u=localStorage.getItem('honamApi')||''}catch(e){}}return u;
+}
+var busyN=0;
+function busy(d){busyN+=d;$('busy').style.width=busyN>0?'70%':'0'}
+function toast(m,err){var t=$('toast');t.textContent=m;t.className=err?'e':'';t.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(function(){t.style.display='none'},err?5000:2600)}
+function api(action,payload){
+ var body=Object.assign({action:action,token:TOKEN},payload||{});busy(1);
+ return fetch(apiUrl(),{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(body)}).then(function(r){return r.json()}).then(function(r){busy(-1);
+  if(r&&r.error==='AUTH'){logout('접속 시간이 지났습니다. 다시 로그인하세요.');throw new Error('AUTH')}return r},function(e){busy(-1);throw new Error('서버에 연결하지 못했습니다')});
+}
+function call(action,payload,okMsg){return api(action,payload).then(function(r){if(!r.ok){toast(r.error||'실패했습니다',true);throw new Error(r.error)}if(okMsg)toast(okMsg);return r})}
+/* ---------- 상태 ---------- */
+var TOKEN='',ME=null,DB=null,TAB='overview';
+var UI={crew:'내',month:null,week:null,upSite:'',upCat:'',gSel:null};
+var DRAFT={month:{},week:{}};
+function dirtyCount(){return Object.keys(DRAFT.month).length+Object.keys(DRAFT.week).length}
+window.addEventListener('beforeunload',function(e){if(dirtyCount()){e.preventDefault();e.returnValue=''}});
+function isAppr(){return ME&&ME.role==='승인자'}function canEdit(){return ME&&ME.role!=='조회자'}
+function siteBy(no){for(var i=0;i<DB.sites.length;i++)if(DB.sites[i]['번호']===no)return DB.sites[i]}
+function eff(){var b={};DB.plans.forEach(function(p){if(p['상태']!=='확정')return;if(!b[p['개소']]||p['개정']>b[p['개소']]['개정'])b[p['개소']]=p});return b}
+function pend(){var b={};DB.plans.forEach(function(p){if(p['상태']==='제출')b[p['개소']]=p});return b}
+function planPct(site,day,E){var p=E[site['번호']];if(!p)return 0;var a=d2n(p['착수']),z=d2n(p['준공']),t=d2n(day);if(t<a)return 0;if(t>=z)return 100;return Math.round((t-a+1)/(z-a+1)*1000)/10}
+function weighted(list,E,fn){var w=0,s=0;list.forEach(function(x){var c=x['직접공사비']||1;w+=c;s+=c*fn(x)});return w?Math.round(s/w*10)/10:0}
+function mySites(){return DB.sites.filter(function(s){return UI.crew==='전체'||(UI.crew==='내'?(ME.crew==='전체'||s['조']===ME.crew):s['조']===UI.crew)})}
+/* ---------- 로그인 ---------- */
+function show(id){['setup','login-wrap','pin-wrap','app'].forEach(function(x){$(x).className=x===id?'':'hide'})}
+function start(){
+ if(!apiUrl()){show('setup');return}
+ var t='';try{t=sessionStorage.getItem('honamTok')||''}catch(e){}
+ if(t){TOKEN=t;load().then(function(){enter()},function(){show('login-wrap')});return}
+ try{$('lgName').value=localStorage.getItem('honamName')||''}catch(e){}
+ show('login-wrap');
+}
+function logout(msg){TOKEN='';try{sessionStorage.removeItem('honamTok')}catch(e){}DB=null;show('login-wrap');$('lgErr').textContent=msg||'';$('lgPin').value='';closeDrawer()}
+$('apiGo').onclick=function(){var v=$('apiIn').value.trim();if(!/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(v)){$('apiErr').textContent='주소 형식이 맞지 않습니다';return}try{localStorage.setItem('honamApi',v)}catch(e){}start()};
+$('lgGo').onclick=doLogin;$('lgPin').onkeydown=function(e){if(e.key==='Enter')doLogin()};
+function doLogin(){
+ var name=$('lgName').value.trim(),pin=$('lgPin').value;$('lgErr').textContent='';if(!name||!pin){$('lgErr').textContent='이름과 PIN을 입력하세요';return}
+ $('lgGo').disabled=true;
+ api('login',{name:name,pin:pin}).then(function(r){$('lgGo').disabled=false;if(!r.ok){$('lgErr').textContent=r.error;return}
+  TOKEN=r.token;ME=r.user;try{sessionStorage.setItem('honamTok',TOKEN);localStorage.setItem('honamName',name)}catch(e){}
+  if(ME.mustChange){show('pin-wrap')}else load().then(enter)},function(e){$('lgGo').disabled=false;$('lgErr').textContent=e.message});
+}
+function doPin(){var a=$('pn1').value,b=$('pn2').value;$('pnErr').textContent='';if(a!==b){$('pnErr').textContent='두 PIN이 다릅니다';return}
+ api('changePin',{pin:a}).then(function(r){if(!r.ok){$('pnErr').textContent=r.error;return}TOKEN=r.token;try{sessionStorage.setItem('honamTok',TOKEN)}catch(e){}ME.mustChange=false;$('pn1').value=$('pn2').value='';toast('PIN을 바꿨습니다');load().then(enter)})}
+$('pnGo').onclick=doPin;
+$('refBtn').onclick=function(){refresh().then(function(){toast('새로 불러왔습니다')}).catch(function(){})};
+$('pinBtn').onclick=function(){show('pin-wrap');$('pn1').focus()};
+$('outBtn').onclick=function(){if(dirtyCount()&&!confirm('저장하지 않은 입력이 있습니다. 로그아웃할까요?'))return;api('logout').catch(function(){});logout()};
+function load(){return api('getAll').then(function(r){if(!r.ok)throw new Error(r.error);DB=r;ME=r.user;return r})}
+function enter(){
+ if(ME.mustChange){show('pin-wrap');return}
+ show('app');var t=todayStr();UI.month=UI.month||t.slice(0,7);UI.week=UI.week||mondayOf(t);
+ if(ME.crew==='전체')UI.crew='전체';
+ $('whoN').textContent=ME.name;$('whoR').textContent=ME.role+(ME.crew&&ME.crew!=='전체'?' · '+ME.crew+'조':'');
+ var dl=DB.settings['준공기한'];$('dd').textContent=dl?'D-'+(d2n(dl)-d2n(t)):'-';
+ render();
+}
+function refresh(keepTab){return load().then(function(){render()})}
+/* ---------- 레이아웃 ---------- */
+var TABS=[['overview','개요'],['gantt','공구계획'],['month','월간계획'],['week','주간계획'],['upload','사진·서류'],['inbox','승인함','a'],['admin','관리','a']];
+function render(){
+ var pc=DB.plans.filter(function(x){return x['상태']==='제출'}).length+DB.months.filter(function(x){return x['상태']==='제출'}).length+DB.weeks.filter(function(x){return x['상태']==='제출'}).length;
+ $('side').innerHTML=TABS.filter(function(t){return !t[2]||isAppr()}).map(function(t){return '<button data-tab="'+t[0]+'" class="'+(TAB===t[0]?'on':'')+'">'+t[1]+(t[0]==='inbox'&&pc?'<span class="cnt">'+pc+'</span>':'')+'</button>'}).join('');
+ var f={overview:rOverview,gantt:rGantt,month:function(){rPeriod('month')},week:function(){rPeriod('week')},upload:rUpload,inbox:rInbox,admin:rAdmin}[TAB];
+ var sc=$('main').scrollTop;f();$('main').scrollTop=sc;
+}
+$('side').onclick=function(e){var b=e.target.closest('button');if(!b)return;TAB=b.getAttribute('data-tab');closeDrawer();render();if(TAB!=='upload'&&TAB!=='gantt'){load().then(render).catch(function(){})}};
+function st(x){return '<span class="badge b-'+esc(x)+'">'+esc(x)+'</span>'}
+function crewChips(){var h='<div class="chips">';var opts=ME.crew==='전체'?['전체','A','B','C','D','E','F']:['내','전체'];opts.forEach(function(c){h+='<button class="chip '+(UI.crew===c?'on':'')+'" data-crew="'+c+'">'+(c.length===1?c+'조':(c==='내'?ME.crew+'조(내 담당)':c))+'</button>'});return h+'</div>'}
+$('main').addEventListener('click',function(e){var c=e.target.closest('[data-crew]');if(c){UI.crew=c.getAttribute('data-crew');render()}});
+/* ---------- 개요 ---------- */
+function rOverview(){
+ var t=todayStr(),E=eff(),P=pend(),sites=DB.sites;
+ var plan=weighted(sites,E,function(s){return planPct(s,t,E)});
+ var mk=t.slice(0,7),mrows=DB.months.filter(function(r){return r['월']===mk&&r['상태']!=='취소'});
+ var act=mrows.length?weighted(mrows.map(function(r){return Object.assign({},siteBy(r['개소']),{_a:+r['실적공정률']||0})}),E,function(x){return x._a}):null;
+ var wk=mondayOf(t),active=sites.filter(function(s){var p=E[s['번호']];return p&&d2n(p['착수'])<=d2n(wk)+6&&d2n(p['준공'])>=d2n(wk)});
+ var wrows={};DB.weeks.forEach(function(r){if(r['주']===wk)wrows[r['개소']]=r});
+ var filled=active.filter(function(s){return wrows[s['번호']]}).length;
+ var np=DB.plans.filter(function(x){return x['상태']==='제출'}).length+DB.months.filter(function(x){return x['상태']==='제출'}).length+DB.weeks.filter(function(x){return x['상태']==='제출'}).length;
+ var h='<div class="top"><h2>개요</h2><span class="note">오늘 '+esc(t)+' ('+WD[(new Date(d2n(t)*864e5)).getUTCDay()]+')</span></div><div class="kpis">'+
+ '<div class="kpi"><div class="l">오늘 계획공정률 (공사비 가중)</div><div class="v">'+plan+'<small>%</small></div><div class="d">확정된 공구계획 기준</div></div>'+
+ '<div class="kpi"><div class="l">'+mk+' 실적공정률</div><div class="v">'+(act===null?'-':act+'<small>%</small>')+'</div><div class="d">'+mrows.length+'개소 입력</div></div>'+
+ '<div class="kpi"><div class="l">이번 주 입력 ('+fmtW(wk)+')</div><div class="v">'+filled+'<small>/ '+active.length+'개소</small></div><div class="d">작업 예정 개소 기준</div></div>'+
+ '<div class="kpi"><div class="l">승인 대기</div><div class="v">'+np+'<small>건</small></div><div class="d">공구·월간·주간 합계</div></div></div>';
+ h+='<div class="grid2"><div class="card"><h3>이번 주 입력 현황 <small>작업 예정 개소</small></h3><table class="t"><tr><th>개소</th><th>공종</th><th>조</th><th>주간 상태</th></tr>';
+ active.forEach(function(s){var r=wrows[s['번호']];h+='<tr><td>'+s['번호']+'. '+esc(s['노선위치'])+'</td><td>'+esc(s['공종'])+'</td><td>'+esc(s['조'])+'</td><td>'+st(r?r['상태']:'미작성')+'</td></tr>'});
+ if(!active.length)h+='<tr><td colspan="4" class="note">이번 주 작업 예정 개소가 없습니다.</td></tr>';
+ h+='</table></div><div class="card"><h3>최근 올린 파일 <small>최근 8건</small></h3><table class="t"><tr><th>일시</th><th>개소</th><th>분류</th><th>파일</th><th>올린 사람</th></tr>';
+ DB.uploads.slice(0,8).forEach(function(u){h+='<tr><td>'+esc(u['일시'].slice(5,16))+'</td><td>'+(u['개소']||'공통')+'</td><td>'+esc(u['분류'])+'</td><td>'+esc(u['파일명'])+'</td><td>'+esc(u['업로더'])+'</td></tr>'});
+ if(!DB.uploads.length)h+='<tr><td colspan="5" class="note">올린 파일이 없습니다.</td></tr>';
+ h+='</table></div></div>';
+ var ms={};DB.months.forEach(function(r){if(r['상태']==='취소')return;(ms[r['월']]=ms[r['월']]||[]).push(r)});var keys=Object.keys(ms).sort().slice(-12);
+ if(keys.length){h+='<div class="card"><h3>월별 계획 대비 실적 <small>입력된 개소 기준, 공사비 가중 누계 %</small></h3><table class="t"><tr><th>월</th><th>입력 개소</th><th>계획</th><th>실적</th><th>차이</th></tr>';
+  keys.forEach(function(k){var rs=ms[k].map(function(r){return Object.assign({},siteBy(r['개소']),{_p:+r['계획공정률']||0,_a:+r['실적공정률']||0})});var p=weighted(rs,E,function(x){return x._p}),a=weighted(rs,E,function(x){return x._a}),d=Math.round((a-p)*10)/10;h+='<tr><td>'+k+'</td><td class="num">'+rs.length+'</td><td class="num">'+p+'%</td><td class="num">'+a+'%</td><td class="num" style="color:'+(d<0?'var(--red)':'var(--grn)')+'">'+(d>0?'+':'')+d+'%p</td></tr>'});h+='</table></div>'}
+ $('main').innerHTML=h;
+}
+/* ---------- 공구계획 (간트) ---------- */
+function rGantt(){
+ var E=eff(),P=pend(),t=todayStr(),S=d2n(DB.settings['착공일']||'2026-11-02')-7,Z=d2n(DB.settings['준공기한']||'2028-07-01')+10,PX=2.1,W=Math.round((Z-S)*PX);
+ var h='<div class="top"><h2>공구계획</h2>'+crewChips()+'<span class="sp"></span><span class="note">막대를 누르면 상세·변경 요청 창이 열립니다 · 점선=승인 대기 · 회색 얇은 선=당초안</span></div><div class="gwrap"><div class="g" style="width:'+(230+W)+'px">';
+ h+='<div class="row h"><div class="lab">개소 · 공종</div><div class="lane" style="width:'+W+'px">';
+ var m0=n2d(S).slice(0,7);for(var m=m0;d2n(m+'-01')<Z;m=addMonth(m,1)){var x=(d2n(m+'-01')-S)*PX;h+='<div class="mt" style="left:'+x+'px">'+(m.slice(5)==='01'||m===m0?m.slice(2).replace('-','.'):m.slice(5)+'월')+'</div>'}
+ h+='</div></div>';
+ var sz=DB.settings['공사중지시작'],ez=DB.settings['공사중지종료'];
+ var crews={};mySites().forEach(function(s){(crews[s['조']]=crews[s['조']]||[]).push(s)});
+ Object.keys(crews).sort().forEach(function(c){
+  h+='<div class="row crew"><div class="lab">'+esc(c)+'조</div><div class="lane" style="width:'+W+'px"></div></div>';
+  crews[c].sort(function(a,b){var pa=E[a['번호']],pb=E[b['번호']];return d2n(pa['착수'])-d2n(pb['착수'])}).forEach(function(s){
+   var p=E[s['번호']],q=P[s['번호']],o=null;DB.plans.forEach(function(x){if(x['개소']===s['번호']&&x['개정']===0)o=x});
+   h+='<div class="row"><div class="lab" data-site="'+s['번호']+'" title="'+esc(s['소재지'])+'">'+s['번호']+'. '+esc(s['노선위치'].replace('호남고속선 ','호고 '))+' · '+esc(s['공종'])+'</div><div class="lane" style="width:'+W+'px">';
+   if(sz&&ez)h+='<div class="stop" style="left:'+((d2n(sz)-S)*PX)+'px;width:'+((d2n(ez)-d2n(sz)+1)*PX)+'px"></div>';
+   if(o&&(o['착수']!==p['착수']||o['준공']!==p['준공']))h+='<div class="bar orig" style="left:'+((d2n(o['착수'])-S)*PX)+'px;width:'+((d2n(o['준공'])-d2n(o['착수'])+1)*PX)+'px"></div>';
+   h+='<div class="bar" data-site="'+s['번호']+'" title="'+esc(p['착수']+' ~ '+p['준공'])+'" style="left:'+((d2n(p['착수'])-S)*PX)+'px;width:'+Math.max(4,(d2n(p['준공'])-d2n(p['착수'])+1)*PX)+'px"></div>';
+   if(q)h+='<div class="bar pend" data-site="'+s['번호']+'" title="대기: '+esc(q['착수']+' ~ '+q['준공'])+'" style="left:'+((d2n(q['착수'])-S)*PX)+'px;width:'+Math.max(4,(d2n(q['준공'])-d2n(q['착수'])+1)*PX)+'px"></div>';
+   h+='</div></div>'})});
+ h+='<div class="today" style="left:'+(230+(d2n(t)-S)*PX)+'px"></div></div></div>';
+ $('main').innerHTML=h;
+ var gw=document.querySelector('.gwrap');gw.scrollLeft=Math.max(0,(d2n(t)-S)*PX-200);
+ // 오늘선은 라벨 위에 가리지 않게 z-index 조정됨
+}
+$('main').addEventListener('click',function(e){var s=e.target.closest('[data-site]');if(s&&TAB==='gantt')openDrawer(+s.getAttribute('data-site'))});
+function closeDrawer(){$('drawer').className='drawer hide'}
+function openDrawer(no){
+ var s=siteBy(no),E=eff(),P=pend(),p=E[no],q=P[no];UI.gSel=no;
+ var hist=DB.plans.filter(function(x){return x['개소']===no}).sort(function(a,b){return b['개정']-a['개정']});
+ var h='<button class="x" id="dx">×</button><h3>'+no+'. '+esc(s['노선위치'])+'</h3><div class="note">'+esc(s['공종'])+' · '+esc(s['조'])+'조 · '+esc(s['소재지'])+'</div>'+
+ '<div class="card" style="margin-top:10px"><h3>현재 확정 일정 <small>개정 '+p['개정']+'</small></h3><b>'+esc(p['착수'])+' ~ '+esc(p['준공'])+'</b> ('+(d2n(p['준공'])-d2n(p['착수'])+1)+'일)</div>';
+ if(q)h+='<div class="card" style="border-color:var(--ora)"><h3>승인 대기 중 '+st('제출')+'</h3><b>'+esc(q['착수'])+' ~ '+esc(q['준공'])+'</b><div class="note">사유: '+esc(q['사유'])+' · '+esc(q['작성자'])+'</div>'+(canEdit()&&(q['작성자']===ME.name||isAppr())?'<button class="btn ghost sm" id="dCancel" data-rev="'+q['개정']+'">요청 취소</button>':'')+'</div>';
+ var allowed=canEdit()&&(ME.crew==='전체'||ME.crew===s['조'])&&!q;
+ if(allowed)h+='<div class="card"><h3>일정 변경 '+(isAppr()?'<small>승인자는 바로 확정됩니다</small>':'<small>승인자가 확인하면 반영됩니다</small>')+'</h3><label class="fld"><span>착수일</span><input type="date" id="dS" value="'+esc(p['착수'])+'"></label><label class="fld"><span>준공일</span><input type="date" id="dE" value="'+esc(p['준공'])+'"></label><label class="fld"><span>변경 사유 (필수)</span><textarea id="dR" rows="2"></textarea></label><button class="btn" id="dGo">'+(isAppr()?'변경 확정':'변경 요청')+'</button></div>';
+ else if(!q&&canEdit())h+='<div class="note">담당 조가 아니라서 변경할 수 없습니다.</div>';
+ h+='<div class="card"><h3>변경 이력</h3><table class="t"><tr><th>개정</th><th>일정</th><th>상태</th><th>사유/결정</th></tr>';
+ hist.forEach(function(x){h+='<tr><td>'+x['개정']+'</td><td>'+esc(fmt(x['착수']))+'~'+esc(fmt(x['준공']))+'</td><td>'+st(x['상태'])+'</td><td>'+esc(x['사유'])+'<div class="note">'+esc(x['작성자'])+' '+esc((x['작성일시']||'').slice(5,16))+(x['결정자']?' → '+esc(x['결정자'])+(x['결정사유']?' ('+esc(x['결정사유'])+')':''):'')+'</div></td></tr>'});
+ h+='</table></div>';
+ $('drawer').innerHTML=h;$('drawer').className='drawer';
+ $('dx').onclick=closeDrawer;
+ if($('dGo'))$('dGo').onclick=function(){call('proposePlan',{site:no,start:$('dS').value,end:$('dE').value,reason:$('dR').value},isAppr()?'일정을 변경했습니다':'변경을 요청했습니다').then(function(){return load()}).then(function(){render();openDrawer(no)}).catch(function(){})};
+ if($('dCancel'))$('dCancel').onclick=function(){call('cancelPlan',{site:no,rev:+$('dCancel').getAttribute('data-rev')},'취소했습니다').then(function(){return load()}).then(function(){render();openDrawer(no)}).catch(function(){})};
+}
+/* ---------- 월간·주간 ---------- */
+var FIELDS={month:['계획작업','계획공정률','실적공정률','실적요약','비고'],week:['작업계획','투입인원','장비','선로차단','진행상태','실적','이슈']};
+function periodKey(k){return k==='month'?UI.month:UI.week}
+function periodRange(k){var key=periodKey(k);return k==='month'?[key+'-01',monthEnd(key)]:[key,n2d(d2n(key)+6)]}
+function dkey(k,site){return periodKey(k)+'|'+site}
+function dbRow(k,site){var list=k==='month'?DB.months:DB.weeks,key=periodKey(k),f=k==='month'?'월':'주';for(var i=0;i<list.length;i++)if(list[i][f]===key&&list[i]['개소']===site)return list[i];return null}
+function defMonthPlan(s){var E=eff();return planPct(s,monthEnd(UI.month),E)}
+function periodSites(k){
+ var E=eff(),r=periodRange(k),a=d2n(r[0]),z=d2n(r[1]),set={};
+ mySites().forEach(function(s){var p=E[s['번호']];if(p&&d2n(p['착수'])<=z&&d2n(p['준공'])>=a)set[s['번호']]=1;if(dbRow(k,s['번호'])||DRAFT[k][dkey(k,s['번호'])])set[s['번호']]=1});
+ return mySites().filter(function(s){return set[s['번호']]});
+}
+function val(k,site,f,row,s){var d=DRAFT[k][dkey(k,site)];if(d&&d[f]!==undefined)return d[f];if(row&&row[f]!==undefined&&row[f]!=='')return row[f];if(k==='month'&&f==='계획공정률'&&!row)return defMonthPlan(s);return ''}
+function rPeriod(k){
+ var key=periodKey(k),sites=periodSites(k),E=eff(),isM=k==='month';
+ var h='<div class="top"><h2>'+(isM?'월간계획':'주간계획')+'</h2><button class="btn ghost sm" data-nav="-1">◀</button>'+(isM?'<input type="month" id="pk" value="'+key+'">':'<input type="date" id="pk" value="'+key+'" title="월요일을 고르면 그 주로 이동합니다"><b>'+fmtW(key)+'</b>')+'<button class="btn ghost sm" data-nav="1">▶</button><button class="btn ghost sm" data-nav="0">'+(isM?'이번 달':'이번 주')+'</button><span class="sp"></span>'+crewChips()+'</div>';
+ h+='<div class="note">'+(isM?'공정률은 해당 월말 기준 누계(%)입니다. 계획 공정률은 확정된 공구계획 일정에 따라 자동 계산되며 고칠 수 있습니다.':'작업 예정 개소가 자동으로 나옵니다. 제출하면 승인자가 확인할 때까지 수정할 수 없고, 반려되면 다시 고칠 수 있습니다.')+'</div>';
+ var head=isM?['','개소','공종','계획작업','계획 %','실적 %','실적 요약','비고','상태']:['','개소','공종','작업계획','인원','장비','선로차단','진행상태','실적','이슈','상태'];
+ h+='<table class="t" id="ptab"><tr>'+head.map(function(x,i){return i===0?'<th><input type="checkbox" id="selAll" title="전체 선택"></th>':'<th>'+x+'</th>'}).join('')+'</tr>';
+ var sumP=[],sumA=[];
+ sites.forEach(function(s){
+  var no=s['번호'],row=dbRow(k,no),status=row?row['상태']:'미작성',d=DRAFT[k][dkey(k,no)];
+  var locked=!canEdit()||((status==='제출'||status==='확정')&&!isAppr())||(isAppr()===false&&ME.crew!=='전체'&&ME.crew!==s['조']);
+  var v=function(f){return val(k,no,f,row,s)};
+  var inp=function(f,type,extra){return '<input type="'+type+'" data-f="'+f+'" data-s="'+no+'" value="'+esc(v(f))+'" '+(locked?'disabled':'')+' '+(extra||'')+'>'};
+  var ta=function(f){return '<textarea data-f="'+f+'" data-s="'+no+'" rows="2" '+(locked?'disabled':'')+'>'+esc(v(f))+'</textarea>'};
+  var cls=(locked?'lock ':'')+(d?'dirty':'');
+  var chk='<td><input type="checkbox" class="sel" data-s="'+no+'" '+((row&&(status==='작성중'||status==='반려'))&&!d?'':'disabled')+'></td>';
+  var info='<td>'+no+'. '+esc(s['노선위치'].replace('호남고속선 ','호고 '))+'</td><td>'+esc(s['공종'])+'<div class="note">'+esc(s['조'])+'조</div></td>';
+  var stc='<td>'+st(status)+(row&&row['결정사유']&&(status==='반려')?'<div class="note" style="color:var(--red)">'+esc(row['결정사유'])+'</div>':'')+(isAppr()&&status==='확정'?'<br><button class="btn ghost sm" data-unlock="'+no+'">수정 열기</button>':'')+'</td>';
+  if(isM){h+='<tr class="'+cls+'" data-row="'+no+'">'+chk+info+'<td style="min-width:200px">'+ta('계획작업')+'</td><td style="width:78px">'+inp('계획공정률','number','min="0" max="100" step="0.1" class="num"')+'</td><td style="width:78px">'+inp('실적공정률','number','min="0" max="100" step="0.1" class="num"')+'</td><td style="min-width:200px">'+ta('실적요약')+'</td><td style="min-width:130px">'+ta('비고')+'</td>'+stc+'</tr>';
+   var pv=+v('계획공정률')||0,av=+v('실적공정률')||0;sumP.push(Object.assign({},s,{_v:pv}));sumA.push(Object.assign({},s,{_v:av}))}
+  else{var opts=['','예정','진행중','완료','지연','중단'].map(function(o){return '<option '+(v('진행상태')===o?'selected':'')+'>'+o+'</option>'}).join('');
+   h+='<tr class="'+cls+'" data-row="'+no+'">'+chk+info+'<td style="min-width:210px">'+ta('작업계획')+'</td><td style="width:64px">'+inp('투입인원','number','min="0" max="500" class="num"')+'</td><td style="min-width:110px">'+inp('장비','text')+'</td><td style="min-width:110px">'+inp('선로차단','text','placeholder="없음 / 01:00~05:00"')+'</td><td style="width:90px"><select data-f="진행상태" data-s="'+no+'" '+(locked?'disabled':'')+'>'+opts+'</select></td><td style="min-width:170px">'+ta('실적')+'</td><td style="min-width:150px">'+ta('이슈')+'</td>'+stc+'</tr>'}
+ });
+ if(!sites.length)h+='<tr><td colspan="'+head.length+'" class="note">이 기간에 작업 예정인 개소가 없습니다. 위에서 다른 조·기간을 선택해 보세요.</td></tr>';
+ h+='</table>';
+ if(isM&&sites.length)h+='<div class="tot"><span>표시 개소 가중평균 &nbsp;계획 <b>'+weighted(sumP,E,function(x){return x._v})+'%</b></span><span>실적 <b>'+weighted(sumA,E,function(x){return x._v})+'%</b></span><span class="note">직접공사비로 가중</span></div>';
+ var nd=Object.keys(DRAFT[k]).length;
+ if(canEdit())h+='<div class="top" style="margin-top:12px"><button class="btn ghost" id="pLoad">'+(isM?'작업 예정 개소 모두 불러오기':'작업 예정 개소 모두 불러오기')+'</button><button class="btn" id="pSave" '+(nd?'':'disabled')+'>저장 ('+nd+'건)</button><button class="btn ghost" id="pSubmit">선택한 행 제출</button><span class="note" id="pHint"></span></div>';
+ $('main').innerHTML=h;
+ if(canEdit())$('pLoad').onclick=function(){sites.forEach(function(s){var no=s['번호'];if(dbRow(k,no)||DRAFT[k][dkey(k,no)])return;DRAFT[k][dkey(k,no)]=isM?{계획공정률:defMonthPlan(s)}:{진행상태:'예정'}});render()};
+}
+function bindPeriod(){}
+$('main').addEventListener('input',function(e){
+ var t=e.target,f=t.getAttribute('data-f');if(!f||(TAB!=='month'&&TAB!=='week'))return;
+ var k=TAB,no=+t.getAttribute('data-s'),key=dkey(k,no);DRAFT[k][key]=DRAFT[k][key]||{};DRAFT[k][key][f]=t.value;
+ var tr=t.closest('tr');tr.classList.add('dirty');var n=Object.keys(DRAFT[k]).length;var b=$('pSave');if(b){b.disabled=false;b.textContent='저장 ('+n+'건)'}
+ var cb=tr.querySelector('.sel');if(cb){cb.checked=false;cb.disabled=true}
+});
+$('main').addEventListener('change',function(e){
+ var t=e.target;
+ if(t.id==='selAll'){document.querySelectorAll('.sel:not(:disabled)').forEach(function(c){c.checked=t.checked})}
+ if(t.id==='pk'){if(TAB==='month'){if(t.value)UI.month=t.value}else if(t.value){UI.week=mondayOf(t.value)}render()}
+});
+$('main').addEventListener('click',function(e){
+ var n=e.target.closest('[data-nav]');
+ if(n&&(TAB==='month'||TAB==='week')){var d=+n.getAttribute('data-nav');
+  if(TAB==='month')UI.month=d===0?todayStr().slice(0,7):addMonth(UI.month,d);else UI.week=d===0?mondayOf(todayStr()):n2d(d2n(UI.week)+7*d);render();return}
+ var u=e.target.closest('[data-unlock]');
+ if(u){var no=+u.getAttribute('data-unlock');call('unlock',{kind:TAB,key:{key:periodKey(TAB),site:no}},'수정할 수 있게 열었습니다').then(refresh).catch(function(){});return}
+ if(e.target.id==='pSave')savePeriod(TAB).catch(function(){});
+ if(e.target.id==='pSubmit')submitPeriod(TAB);
+});
+function buildRows(k){
+ var isM=k==='month',rows=[],key=periodKey(k);
+ Object.keys(DRAFT[k]).forEach(function(dk){var p=dk.split('|');if(p[0]!==key)return;var o={개소:+p[1]};o[isM?'월':'주']=key;Object.keys(DRAFT[k][dk]).forEach(function(f){o[f]=DRAFT[k][dk][f]});rows.push(o)});
+ return rows;
+}
+function savePeriod(k){
+ var rows=buildRows(k);if(!rows.length)return Promise.resolve();
+ return api(k==='month'?'saveMonthly':'saveWeekly',{rows:rows}).then(function(r){
+  var failedSites={};(r.errors||[]).forEach(function(m){var x=m.match(/^(\d+)번/);if(x)failedSites[x[1]]=1});
+  rows.forEach(function(o){if(!failedSites[o['개소']])delete DRAFT[k][periodKey(k)+'|'+o['개소']]});
+  if(!r.ok&&!r.errors){toast(r.error||'저장하지 못했습니다',true);return}
+  toast(r.saved+'건 저장'+(r.errors&&r.errors.length?' · 실패: '+r.errors.join(', '):''),!!(r.errors&&r.errors.length));return load().then(render)});
+}
+function submitPeriod(k){
+ var sel=[].slice.call(document.querySelectorAll('.sel:checked')).map(function(c){return {key:periodKey(k),site:+c.getAttribute('data-s')}});
+ if(!sel.length){toast('제출할 행을 선택하세요. 저장된 행만 선택할 수 있습니다',true);return}
+ if(!confirm(sel.length+'건을 제출할까요? 제출하면 승인 전까지 수정할 수 없습니다.'))return;
+ call('submit',{kind:k,keys:sel},'제출했습니다').then(function(r){if(r.skipped&&r.skipped.length)toast('제외: '+r.skipped.join(', '),true);return refresh()}).catch(function(){});
+}
+/* ---------- 사진·서류 ---------- */
+function rUpload(){
+ var h='<div class="top"><h2>사진·서류 올리기</h2></div>';
+ if(canEdit()){
+  h+='<div class="card"><div class="grid2"><div><label class="fld"><span>개소</span><select id="uSite"><option value="0">공통(개소 없음)</option>'+mySites().map(function(s){return '<option value="'+s['번호']+'" '+(UI.upSite===String(s['번호'])?'selected':'')+'>'+s['번호']+'. '+esc(s['노선위치'])+' · '+esc(s['공종'])+'</option>'}).join('')+'</select></label>'+
+  '<label class="fld"><span>분류</span><select id="uCat">'+DB.categories.map(function(c){return '<option>'+esc(c)+'</option>'}).join('')+'</select></label>'+
+  '<label class="fld"><span>메모 (선택)</span><input type="text" id="uMemo" maxlength="300" placeholder="예: 기초 철근 배근 검측"></label></div>'+
+  '<div><div class="drop" id="drop">여기로 파일을 끌어다 놓거나 눌러서 고르세요<br><small>사진은 자동으로 줄여 올립니다 · 파일당 10MB까지 · 여러 장 가능</small></div><input type="file" id="uFile" multiple class="hide"><div id="uList" class="note"></div></div></div></div>';
+ }
+ h+='<div class="top"><h2 style="font-size:15px">올린 파일</h2><select id="fSite"><option value="">전체 개소</option>'+DB.sites.map(function(s){return '<option value="'+s['번호']+'" '+(UI.upSite===String(s['번호'])?'selected':'')+'>'+s['번호']+'. '+esc(s['노선위치'])+'</option>'}).join('')+'</select><select id="fCat"><option value="">전체 분류</option>'+DB.categories.map(function(c){return '<option '+(UI.upCat===c?'selected':'')+'>'+esc(c)+'</option>'}).join('')+'</select></div>';
+ var list=DB.uploads.filter(function(u){return (!UI.upSite||String(u['개소'])===UI.upSite)&&(!UI.upCat||u['분류']===UI.upCat)});
+ h+='<table class="t"><tr><th>일시</th><th>개소</th><th>분류</th><th>파일</th><th>메모</th><th>크기</th><th>올린 사람</th><th></th></tr>';
+ list.forEach(function(u){h+='<tr><td>'+esc(u['일시'].slice(2,16))+'</td><td>'+(u['개소']||'공통')+'</td><td>'+esc(u['분류'])+'</td><td>'+esc(u['파일명'])+'</td><td>'+esc(u['메모'])+'</td><td class="num">'+u['크기KB']+'KB</td><td>'+esc(u['업로더'])+'</td><td style="white-space:nowrap"><button class="btn ghost sm" data-view="'+esc(u['ID'])+'">열기</button> '+(canEdit()&&(u['업로더']===ME.name||isAppr())?'<button class="btn ghost sm" data-del="'+esc(u['ID'])+'">삭제</button>':'')+'</td></tr>'});
+ if(!list.length)h+='<tr><td colspan="8" class="note">올린 파일이 없습니다.</td></tr>';
+ h+='</table><div class="note">화면에는 최근 400건까지 표시됩니다. 전체 파일은 구글 드라이브의 업로드 폴더에 개소별로 정리되어 있습니다.</div>';
+ $('main').innerHTML=h;
+ var fs=$('fSite'),fc=$('fCat');fs.onchange=function(){UI.upSite=fs.value;render()};fc.onchange=function(){UI.upCat=fc.value;render()};
+ if(canEdit()){var drop=$('drop'),fi=$('uFile');drop.onclick=function(){fi.click()};fi.onchange=function(){doFiles(fi.files);fi.value=''};
+  drop.ondragover=function(e){e.preventDefault();drop.className='drop over'};drop.ondragleave=function(){drop.className='drop'};
+  drop.ondrop=function(e){e.preventDefault();drop.className='drop';doFiles(e.dataTransfer.files)}}
+}
+function readB64(file){return new Promise(function(res,rej){var r=new FileReader();r.onload=function(){res(String(r.result).split(',')[1]||'')};r.onerror=rej;r.readAsDataURL(file)})}
+function shrink(file){
+ if(!/^image\/(jpeg|png|webp)$/.test(file.type)||file.size<400*1024)return Promise.resolve(file);
+ return new Promise(function(res){var img=new Image(),url=URL.createObjectURL(file);img.onload=function(){var m=2000,sc=Math.min(1,m/Math.max(img.width,img.height)),c=document.createElement('canvas');c.width=Math.round(img.width*sc);c.height=Math.round(img.height*sc);c.getContext('2d').drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(url);c.toBlob(function(b){res(b&&b.size<file.size?new File([b],file.name.replace(/\.\w+$/,'')+'.jpg',{type:'image/jpeg'}):file)},'image/jpeg',.85)};img.onerror=function(){res(file)};img.src=url})
+}
+function doFiles(files){
+ files=[].slice.call(files);if(!files.length)return;
+ var site=+$('uSite').value,cat=$('uCat').value,memo=$('uMemo').value,box=$('uList'),ok=0,i=0;UI.upSite=site?String(site):'';
+ function next(){
+  if(i>=files.length){toast(ok+'개 올렸습니다');return load().then(render)}
+  var f=files[i++];box.textContent=(i)+'/'+files.length+' 올리는 중: '+f.name;
+  if(f.size>30*1024*1024){toast(f.name+': 너무 큽니다',true);return next()}
+  return shrink(f).then(function(g){if(g.size>10*1024*1024){toast(f.name+': 10MB를 넘어 올릴 수 없습니다',true);return}
+   return readB64(g).then(function(b){return api('upload',{site:site,category:cat,name:g.name,mime:g.type||'application/octet-stream',memo:memo,data:b})}).then(function(r){if(r.ok)ok++;else toast(f.name+': '+r.error,true)})}).then(next,function(e){toast(e.message,true);return next()});
+ }
+ next();
+}
+$('main').addEventListener('click',function(e){
+ var v=e.target.closest('[data-view]'),d=e.target.closest('[data-del]');
+ if(v)viewFile(v.getAttribute('data-view'));
+ if(d&&confirm('이 파일을 삭제할까요? 드라이브 휴지통으로 이동합니다.'))call('deleteUpload',{id:d.getAttribute('data-del')},'삭제했습니다').then(refresh).catch(function(){});
+});
+function b64blob(b64,mime){var bin=atob(b64),a=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)a[i]=bin.charCodeAt(i);return new Blob([a],{type:mime})}
+function viewFile(id){
+ call('getFile',{id:id}).then(function(r){var url=URL.createObjectURL(b64blob(r.data,r.mime));
+  if(/^image\//.test(r.mime)){$('modal').innerHTML='<div class="box"><div style="margin-bottom:6px"><b>'+esc(r.name)+'</b> <a class="btn ghost sm" href="'+url+'" download="'+esc(r.name)+'">내려받기</a> <button class="btn sm" id="mx">닫기</button></div><img src="'+url+'"></div>';$('modal').className='modal';$('mx').onclick=function(){$('modal').className='modal hide';URL.revokeObjectURL(url)}}
+  else{var a=document.createElement('a');a.href=url;a.download=r.name;if(r.mime==='application/pdf'){a.target='_blank'}document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url)},60000)}}).catch(function(){});
+}
+$('modal').addEventListener('click',function(e){if(e.target===$('modal'))$('modal').className='modal hide'});
+/* ---------- 승인함 ---------- */
+function rInbox(){
+ var h='<div class="top"><h2>승인함</h2><span class="note">제출된 항목을 확인하고 승인하거나 반려합니다. 반려할 때는 사유를 꼭 적어주세요.</span></div>';
+ var pl=DB.plans.filter(function(x){return x['상태']==='제출'}),mo=DB.months.filter(function(x){return x['상태']==='제출'}),wk=DB.weeks.filter(function(x){return x['상태']==='제출'});
+ if(!pl.length&&!mo.length&&!wk.length)h+='<div class="card">승인 대기 중인 항목이 없습니다.</div>';
+ else{
+  h+='<div class="card"><label class="fld" style="max-width:480px"><span>반려 사유 (반려할 때만)</span><input type="text" id="ibReason"></label></div>';
+  function tab(kind,title,hd,rows,cells){h+='<div class="card"><h3>'+title+' <small>'+rows.length+'건</small></h3><table class="t" data-kind="'+kind+'"><tr><th><input type="checkbox" class="ibAll"></th>'+hd.map(function(x){return '<th>'+x+'</th>'}).join('')+'</tr>';rows.forEach(function(r){h+='<tr><td><input type="checkbox" class="ibSel" data-k="'+esc(JSON.stringify(r._key))+'"></td>'+cells(r)+'</tr>'});h+='</table><div class="top" style="margin-top:8px"><button class="btn ib" data-kind="'+kind+'" data-d="승인">선택 승인</button><button class="btn red ib" data-kind="'+kind+'" data-d="반려">선택 반려</button></div></div>'}
+  if(pl.length)tab('plan','공구계획 변경',['개소','현재 일정','요청 일정','사유','요청자'],pl.map(function(r){r._key={site:r['개소'],rev:r['개정']};return r}),function(r){var s=siteBy(r['개소']),c=eff()[r['개소']];return '<td>'+r['개소']+'. '+esc(s['노선위치'])+' · '+esc(s['공종'])+'</td><td>'+esc(c?fmt(c['착수'])+'~'+fmt(c['준공']):'')+'</td><td><b>'+esc(fmt(r['착수']))+'~'+esc(fmt(r['준공']))+'</b></td><td>'+esc(r['사유'])+'</td><td>'+esc(r['작성자'])+'</td>'});
+  if(mo.length)tab('month','월간계획',['월','개소','계획작업','계획 %','실적 %','실적요약','작성자'],mo.map(function(r){r._key={key:r['월'],site:r['개소']};return r}),function(r){var s=siteBy(r['개소']);return '<td>'+esc(r['월'])+'</td><td>'+r['개소']+'. '+esc(s['노선위치'])+'</td><td>'+esc(r['계획작업'])+'</td><td class="num">'+esc(r['계획공정률'])+'</td><td class="num">'+esc(r['실적공정률'])+'</td><td>'+esc(r['실적요약'])+'</td><td>'+esc(r['작성자'])+'</td>'});
+  if(wk.length)tab('week','주간계획',['주','개소','작업계획','인원','선로차단','상태','이슈','작성자'],wk.map(function(r){r._key={key:r['주'],site:r['개소']};return r}),function(r){var s=siteBy(r['개소']);return '<td>'+esc(fmtW(r['주']))+'</td><td>'+r['개소']+'. '+esc(s['노선위치'])+'</td><td>'+esc(r['작업계획'])+'</td><td class="num">'+esc(r['투입인원'])+'</td><td>'+esc(r['선로차단'])+'</td><td>'+esc(r['진행상태'])+'</td><td>'+esc(r['이슈'])+'</td><td>'+esc(r['작성자'])+'</td>'});
+ }
+ $('main').innerHTML=h;
+}
+$('main').addEventListener('click',function(e){
+ var b=e.target.closest('.ib');
+ if(b){var kind=b.getAttribute('data-kind'),dec=b.getAttribute('data-d'),tb=document.querySelector('table[data-kind='+kind+']');
+  var keys=[].slice.call(tb.querySelectorAll('.ibSel:checked')).map(function(c){return JSON.parse(c.getAttribute('data-k'))});
+  if(!keys.length){toast('항목을 선택하세요',true);return}
+  var reason=$('ibReason').value.trim();if(dec==='반려'&&!reason){toast('반려 사유를 입력하세요',true);return}
+  call('decide',{kind:kind,keys:keys,decision:dec,reason:reason},keys.length+'건 '+dec+' 처리').then(refresh).catch(function(){})}
+ if(e.target.classList&&e.target.classList.contains('ibAll')){var on=e.target.checked;e.target.closest('table').querySelectorAll('.ibSel').forEach(function(c){c.checked=on})}
+});
+/* ---------- 관리 ---------- */
+function rAdmin(){
+ var h='<div class="top"><h2>관리</h2></div><div class="grid2"><div class="card"><h3>사용자 <small>이름·PIN으로 로그인합니다</small></h3><table class="t"><tr><th>이름</th><th>역할</th><th>담당 조</th><th>사용</th><th>초기 PIN</th><th></th></tr>';
+ (DB.users||[]).forEach(function(u){h+='<tr><td>'+esc(u['이름'])+'</td><td>'+esc(u['역할'])+'</td><td>'+esc(u['담당조'])+'</td><td>'+(u['사용']==='Y'?'사용':'중지')+'</td><td>'+(u['변경필요']==='Y'?'<b>'+esc(u['초기PIN'])+'</b><div class="note">아직 변경 안 함</div>':'<span class="note">변경 완료</span>')+'</td><td style="white-space:nowrap"><button class="btn ghost sm" data-uedit="'+esc(u['이름'])+'">수정</button> <button class="btn ghost sm" data-ureset="'+esc(u['이름'])+'">PIN 초기화</button></td></tr>'});
+ h+='</table></div><div class="card"><h3>사용자 추가·수정</h3><label class="fld"><span>이름</span><input type="text" id="auN" maxlength="20"></label><label class="fld"><span>역할</span><select id="auR"><option>입력자</option><option>승인자</option><option>조회자</option></select></label><label class="fld"><span>담당 조 (입력자는 이 조의 개소만 입력)</span><select id="auC"><option>전체</option><option>A</option><option>B</option><option>C</option><option>D</option><option>E</option><option>F</option></select></label><label class="fld"><span><input type="checkbox" id="auA" checked style="width:auto;min-height:0"> 사용</span></label><button class="btn" id="auGo">저장</button><div class="note">새 사용자를 추가하면 임시 PIN이 표시됩니다. 본인에게만 알려주세요. 처음 로그인할 때 PIN을 바꿉니다.</div></div></div>';
+ h+='<div class="card"><h3>설정</h3><div class="grid2"><div><label class="fld"><span>공사중지 시작일 (간트에 회색으로 표시)</span><input type="date" id="stS" value="'+esc(DB.settings['공사중지시작'])+'"></label><label class="fld"><span>공사중지 종료일</span><input type="date" id="stE" value="'+esc(DB.settings['공사중지종료'])+'"></label><button class="btn" id="stGo">저장</button></div><div><label class="fld"><span>업로드 폴더 (구글 드라이브 폴더 ID)</span><input type="text" id="stF" value="'+esc(DB.settings['업로드폴더ID'])+'"></label><button class="btn ghost" id="stFGo">폴더 변경</button><div class="note">바꾸지 않아도 됩니다. 이미 올라간 파일은 옮겨지지 않습니다.</div>'+(DB.ssUrl?'<p style="margin-top:12px"><a href="'+esc(DB.ssUrl)+'" target="_blank" rel="noopener">데이터 시트(구글 시트) 열기</a> — 모든 입력 내용과 이력이 저장됩니다</p>':'')+(DB.settings['업로드폴더ID']?'<p><a href="https://drive.google.com/drive/folders/'+esc(DB.settings['업로드폴더ID'])+'" target="_blank" rel="noopener">업로드 폴더(드라이브) 열기</a></p>':'')+'</div></div></div>';
+ $('main').innerHTML=h;
+}
+$('main').addEventListener('click',function(e){
+ var t=e.target;
+ if(t.id==='auGo'){call('saveUser',{name:$('auN').value,role:$('auR').value,crew:$('auC').value,active:$('auA').checked},'저장했습니다').then(function(r){if(r.tempPin)alert('임시 PIN: '+r.tempPin+'\n\n본인에게만 알려주세요. 처음 로그인할 때 바꾸게 됩니다.');return refresh()}).catch(function(){})}
+ var ed=t.closest('[data-uedit]');if(ed){var u=(DB.users||[]).filter(function(x){return x['이름']===ed.getAttribute('data-uedit')})[0];$('auN').value=u['이름'];$('auR').value=u['역할'];$('auC').value=u['담당조']||'전체';$('auA').checked=u['사용']==='Y';$('auN').scrollIntoView()}
+ var rs=t.closest('[data-ureset]');if(rs&&confirm(rs.getAttribute('data-ureset')+'님의 PIN을 초기화할까요?'))call('resetPin',{name:rs.getAttribute('data-ureset')}).then(function(r){alert('임시 PIN: '+r.tempPin);return refresh()}).catch(function(){});
+ if(t.id==='stGo')call('saveSetting',{key:'공사중지시작',value:$('stS').value}).then(function(){return call('saveSetting',{key:'공사중지종료',value:$('stE').value},'저장했습니다')}).then(refresh).catch(function(){});
+ if(t.id==='stFGo')call('saveSetting',{key:'업로드폴더ID',value:$('stF').value.trim()},'폴더를 바꿨습니다').then(refresh).catch(function(){});
+});
+window.__app={get DB(){return DB},get UI(){return UI},render:render};
+start();
+})();
+</script></body></html>
