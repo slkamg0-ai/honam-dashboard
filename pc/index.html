@@ -70,6 +70,7 @@ table.t input:disabled,table.t textarea:disabled,table.t select:disabled{color:v
 .g .bar.pend{top:27px;height:5px;background:repeating-linear-gradient(45deg,var(--ora),var(--ora) 4px,#fff 4px,#fff 7px);border:1px solid var(--ora)}
 .g .bar.orig{top:1px;height:3px;background:#7a7f85}
 .g .stop{position:absolute;top:0;bottom:0;background:rgba(120,120,130,.16);pointer-events:none;z-index:1}
+.g .p1{position:absolute;top:0;bottom:0;width:0;border-left:2px dashed var(--ora);z-index:3;pointer-events:none}.g .p1 span{position:sticky;top:30px;font-size:11px;color:var(--ora);background:#fff;margin-left:2px;white-space:nowrap}
 .g .today{position:absolute;top:0;bottom:0;width:2px;background:var(--red);z-index:3;pointer-events:none}
 .g .mt{position:absolute;top:0;height:100%;border-left:1px solid var(--bd);padding-left:3px;font-size:11px;white-space:nowrap}
 .g .mline{position:absolute;top:0;bottom:0;border-left:1px solid var(--bdl);pointer-events:none}
@@ -245,7 +246,7 @@ function rOverview(){
 /* ---------- 공구계획 (간트) ---------- */
 function rGantt(){
  var E=eff(),P=pend(),t=todayStr(),ACT=actMap(),S=d2n(DB.settings['착공일']||'2026-11-02')-7,Z=d2n(DB.settings['준공기한']||'2028-07-01')+10,PX=2.1,W=Math.round((Z-S)*PX);
- var h='<div class="top"><h2>공구계획</h2>'+crewChips()+'<span class="sp"></span><span class="note">막대를 누르면 상세·변경 요청 창이 열립니다 · 점선=승인 대기 · 회색 얇은 선=당초안 · 초록=실적(착수~준공/오늘)</span></div><div class="gwrap"><div class="g" style="width:'+(230+W)+'px">';
+ var h='<div class="top"><h2>공구계획</h2>'+crewChips()+'<span class="sp"></span><span class="note">막대를 누르면 상세·변경 요청 창이 열립니다 · 점선=승인 대기 · 회색 얇은 선=당초안 · 초록=실적(착수~준공/오늘) · 주황 세로 점선=1차 계약 준공일</span></div><div class="gwrap"><div class="g" style="width:'+(230+W)+'px">';
  h+='<div class="row h"><div class="lab">개소 · 공종</div><div class="lane" style="width:'+W+'px">';
  var m0=n2d(S).slice(0,7);for(var m=m0;d2n(m+'-01')<Z;m=addMonth(m,1)){var x=(d2n(m+'-01')-S)*PX;h+='<div class="mt" style="left:'+x+'px">'+(m.slice(5)==='01'||m===m0?m.slice(2).replace('-','.'):m.slice(5)+'월')+'</div>'}
  h+='</div></div>';
@@ -258,10 +259,12 @@ function rGantt(){
    h+='<div class="row"><div class="lab" data-site="'+s['번호']+'" title="'+esc(s['소재지'])+'">'+s['번호']+'. '+esc(s['노선위치'].replace('호남고속선 ','호고 '))+' · '+esc(s['공종'])+'</div><div class="lane" style="width:'+W+'px">';
    if(sz&&ez)h+='<div class="stop" style="left:'+((d2n(sz)-S)*PX)+'px;width:'+((d2n(ez)-d2n(sz)+1)*PX)+'px"></div>';
    if(o&&(o['착수']!==p['착수']||o['준공']!==p['준공']))h+='<div class="bar orig" style="left:'+((d2n(o['착수'])-S)*PX)+'px;width:'+((d2n(o['준공'])-d2n(o['착수'])+1)*PX)+'px"></div>';
-   h+='<div class="bar" data-site="'+s['번호']+'" title="'+esc(p['착수']+' ~ '+p['준공'])+'" style="left:'+((d2n(p['착수'])-S)*PX)+'px;width:'+Math.max(4,(d2n(p['준공'])-d2n(p['착수'])+1)*PX)+'px"></div>';
+   var sg=(DB.segs||{})[s['번호']],useSg=sg&&sg.length&&sg[0][0]===p['착수']&&sg[sg.length-1][1]===p['준공'];
+   (useSg?sg:[[p['착수'],p['준공']]]).forEach(function(g){h+='<div class="bar" data-site="'+s['번호']+'" title="'+esc(g[0]+' ~ '+g[1])+'" style="left:'+((d2n(g[0])-S)*PX)+'px;width:'+Math.max(4,(d2n(g[1])-d2n(g[0])+1)*PX)+'px"></div>'});
    var ac=ACT[s['번호']];if(ac&&ac['실착수']){var ae=ac['실준공']||(d2n(t)>=d2n(ac['실착수'])?t:ac['실착수']);h+='<div class="bar act" data-site="'+s['번호']+'" title="실적: '+esc(ac['실착수']+' ~ '+(ac['실준공']||'진행 중'))+'" style="left:'+((d2n(ac['실착수'])-S)*PX)+'px;width:'+Math.max(4,(d2n(ae)-d2n(ac['실착수'])+1)*PX)+'px"></div>'}
    if(q)h+='<div class="bar pend" data-site="'+s['번호']+'" title="대기: '+esc(q['착수']+' ~ '+q['준공'])+'" style="left:'+((d2n(q['착수'])-S)*PX)+'px;width:'+Math.max(4,(d2n(q['준공'])-d2n(q['착수'])+1)*PX)+'px"></div>';
    h+='</div></div>'})});
+ var p1=DB.settings['일차준공일'];if(p1)h+='<div class="p1" title="1차 계약 준공일 '+esc(p1)+'" style="left:'+(230+(d2n(p1)-S)*PX)+'px"><span>1차 준공</span></div>';
  h+='<div class="today" style="left:'+(230+(d2n(t)-S)*PX)+'px"></div></div></div>';
  $('main').innerHTML=h;
  var gw=document.querySelector('.gwrap');gw.scrollLeft=Math.max(0,(d2n(t)-S)*PX-200);
