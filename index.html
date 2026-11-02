@@ -8,6 +8,7 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#181a1d">
+<script>try{if(localStorage.getItem("honamTheme")==="white")document.documentElement.setAttribute("data-theme","white")}catch(e){}</script>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="호남 현황판">
@@ -97,10 +98,24 @@ footer{max-width:980px;margin:6px auto 0;padding:0 14px;font-size:12px;color:var
 .arow .ad{flex:0 0 auto;text-align:right;font-size:12px;color:var(--sub)}
 .asec{padding:6px 12px;font-size:12px;font-weight:700;color:var(--sub);background:rgba(29,31,32,.05);border-top:1px solid var(--bdl)}
 .anote{padding:7px 12px;font-size:11.5px;color:var(--sub);border-top:1px solid var(--bdl)}
+
+.thm{display:inline-flex;margin-top:5px;border:1px solid rgba(148,188,227,.55)}
+.thm button{font:600 11.5px Barlow,"Malgun Gothic",sans-serif;padding:4px 10px;min-height:28px;background:transparent;border:0;color:var(--hd2);cursor:pointer}
+.thm button.on{background:var(--hd2);color:#181a1d}
+html[data-theme=white]{--bg:#fff;--panel:#fff;--hd:#fff;--hd2:#416180;--bd:rgba(29,31,32,.22);--bdl:rgba(29,31,32,.12)}
+html[data-theme=white] body{background-image:none;background-color:#fff}
+html[data-theme=white] header{color:var(--ink);border-bottom:1px solid var(--bd)}
+html[data-theme=white] .dday b{color:var(--ink)}
+html[data-theme=white] nav button{color:var(--sub)}
+html[data-theme=white] nav button.on{color:var(--ink)}
+html[data-theme=white] .thm{border-color:var(--pri)}
+html[data-theme=white] .thm button.on{background:var(--pri2);color:#fff}
+html[data-theme=white] .kpi,html[data-theme=white] .card{box-shadow:0 1px 0 rgba(29,31,32,.04)}
+html[data-theme=white] .asec{background:#f3f4f5}
 </style></head><body>
 <header><div class="hrow"><div><h1>호남고속선 재해예방공사 현황판<span class="badge-plan">계획안</span></h1>
 <div class="s">국가철도공단 · (주)동우건설 · 정읍~광주송정 등 26개 개소</div></div>
-<div class="dday"><b id="dd">-</b><span id="ddl">준공기한까지</span></div></div>
+<div class="dday"><b id="dd">-</b><span id="ddl">준공기한까지</span><div class="thm" id="thm" role="group" aria-label="화면 배경"><button data-m="default" class="on">기본</button><button data-m="white">흰색</button></div></div></div>
 <nav id="nav"><button data-t="dash" class="on">현황</button><button data-t="gantt">공정표</button><button data-t="sites">개소·위치</button><button data-t="permit">인허가</button></nav></header>
 <div id="alerts"></div>
 <main>
@@ -184,6 +199,18 @@ var PGO=null;
  document.getElementById("pgo").onclick=function(e){e.preventDefault();PGO()};
  render()})();
 
+
+// ---- 화면 배경 선택 (기본 / 흰색), 이 기기에 저장
+(function(){
+ var root=document.documentElement,box=document.getElementById("thm"),meta=document.querySelector("meta[name=theme-color]");
+ function apply(m,save){
+  if(m==="white")root.setAttribute("data-theme","white");else root.removeAttribute("data-theme");
+  Array.prototype.forEach.call(box.children,function(b){b.className=b.getAttribute("data-m")===m?"on":""});
+  if(meta)meta.setAttribute("content",m==="white"?"#ffffff":"#181a1d");
+  if(save){try{localStorage.setItem("honamTheme",m)}catch(e){}}}
+ box.onclick=function(e){var b=e.target.closest("button");if(b)apply(b.getAttribute("data-m"),true)};
+ var cur="default";try{cur=localStorage.getItem("honamTheme")==="white"?"white":"default"}catch(e){}
+ apply(cur,false)})();
 // ---- 미리알림: 오늘(접속 기기 날짜) 기준 지연·임박 일정을 모든 탭 위에 표시
 (function(){
  var KEY="honamPermitDone_v1",st={},open=false,TITLE0=document.title,WD=["일","월","화","수","목","금","토"];
