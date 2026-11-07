@@ -1,5 +1,5 @@
 /**
- * HN28 현장 ERP v2 — 1단계: 로그인·직원 관리 서버 (Apps Script)
+ * HN28 현장 ERP v2 — 서버 (Apps Script)  1단계 로그인·직원 관리 / 2단계 경비 입력·결재·문서번호·영수증
  *
  * 화면(GitHub Pages)이 보낸 요청에 JSON으로 답한다. 데이터는 구글 시트(HN28_ERP_DB)에만 둔다.
  *  - 모든 요청은 POST(text/plain, JSON 본문). GET 은 ping 만 허용한다(주소창에 PIN 이 남지 않게).
@@ -17,6 +17,8 @@ const USER_HEADERS = ['로그인ID', '이름', '역할', 'PIN해시', '솔트', 
 const COL = { id: 0, name: 1, role: 2, hash: 3, salt: 4, active: 5, temp: 6, fails: 7, lockUntil: 8, updated: 9 };
 const ROLES = ['현장소장', '공무', '공사'];
 const MANAGER_ROLE = '현장소장';
+const SHEET_EXP = '경비';
+const SHEET_SEQ = '번호';
 const SESSION_TTL_SEC = 21600; // 6시간 (CacheService 최대)
 const MAX_FAILS = 5;
 const LOCK_MIN = 15;
@@ -36,6 +38,8 @@ function setup() {
   const ss = getDb_();
   const sh = ensureUsersSheet_(ss);
   ensureSheet_(ss, SHEET_AUDIT, ['시각', '로그인ID', '동작', '결과']);
+  ensureExpSheet_(ss); ensureSheet_(ss, SHEET_SEQ, ['키', '마지막번호']);
+  receiptRoot_(); // 영수증 폴더를 만들면서 드라이브 권한 승인을 받는다
   const rows = readUsers_(sh);
   const made = [];
   INITIAL_STAFF.forEach(function (s) {
@@ -45,6 +49,7 @@ function setup() {
     made.push(s.id + ' (' + s.role + ') 임시 PIN: ' + temp);
   });
   Logger.log('DB: ' + ss.getUrl());
+  Logger.log('영수증 폴더: ' + receiptRoot_().getUrl());
   Logger.log(made.length ? '새로 만든 직원 ' + made.length + '명\n' + made.join('\n') : '새로 만든 직원 없음(이미 모두 있음)');
 }
 
@@ -67,7 +72,7 @@ function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.1' }; }
+function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.2' }; }
 
 function route_(req) {
   const t0 = Date.now();
@@ -81,6 +86,14 @@ function route_(req) {
       case 'changePin': out = changePin_(req); break;
       case 'listUsers': out = listUsers_(req); break;
       case 'saveUser': out = saveUser_(req); break;
+      case 'getMaster': out = getMaster_(req); break;
+      case 'listExpenses': out = listExpenses_(req); break;
+      case 'saveExpense': out = saveExpense_(req); break;
+      case 'submitExpense': out = submitExpense_(req); break;
+      case 'reviewExpense': out = reviewExpense_(req); break;
+      case 'approveExpense': out = approveExpense_(req); break;
+      case 'deleteExpense': out = deleteExpense_(req); break;
+      case 'getReceipt': out = getReceipt_(req); break;
       default: out = fail_('UNKNOWN_ACTION', '알 수 없는 요청입니다.');
     }
   } catch (err) {
@@ -375,4 +388,393 @@ function audit_(id, action, result) {
     const sh = ensureSheet_(getDb_(), SHEET_AUDIT, ['시각', '로그인ID', '동작', '결과']);
     sh.appendRow([nowStr_(), id, action, result]);
   } catch (e) { /* 기록 실패가 로그인을 막지 않게 한다 */ }
+}
+
+// ═════════════════════════════ 2단계: 경비 ═════════════════════════════
+
+const EXP_CATEGORIES = ['복리후생비(식대/간식)', '차량유지비(유류대/통행료)', '현장소모품(잡자재/공구)', '안전관리비(안전용품/TBM)', '여비교통비(숙박/출장)', '사무실운영비(통신/임대/공과금)', '업무추진비(회의/대관업무)', '기타현장경비'];
+const EXP_PAY = ['법인카드', '현장전도금(현금/이체)', '개인카드(추후정산)', '세금계산서(외상)'];
+const EXP_BUDGET = ['직접노무비', '장비사용료', '주요자재대', '가설재대', '외주공사비', '현장운영경비', '안전관리비', '품질관리비', '기타경비'];
+const EXP_CAT_BUDGET = { '안전관리비(안전용품/TBM)': '안전관리비', '현장소모품(잡자재/공구)': '주요자재대' };
+const EXP_DEFAULT_BUDGET = '현장운영경비';
+// 개소 마스터(협업/master/개소_마스터.csv, 2026-11-06). 0 = 공통(개소 없음). 24번은 결번.
+const SITES = [
+  [27, 'S27', '전라선', '109k310', '비탈면완화'], [26, 'S26', '호남고속선', '83k138~473 (익산)', 'U형수로 이어올리기'],
+  [1, 'S01', '호남고속선', '122k077 화룡터널 종점', 'U형수로'], [2, 'S02', '호남고속선', '150k653 달성터널 종점', 'U형수로'],
+  [3, 'S03', '호남고속선', '151k023 죽청터널 시점', 'U형수로'], [4, 'S04', '호남고속선', '152k413 죽청터널 종점', 'U형수로'],
+  [5, 'S05', '호남고속선', '152k784 성덕1터널 시점', '소단측구'], [6, 'S06', '호남고속선', '152k923 성덕1터널 종점', 'U형수로+격자블록'],
+  [7, 'S07', '호남고속선', '153k113 성덕2터널 시점', 'U형수로'], [8, 'S08', '호남고속선', '153k213 성덕2터널 종점', 'U형수로'],
+  [9, 'S09', '호남고속선', '156k968 송현제1 시점', 'U형수로+격자블록'], [10, 'S10', '호남고속선', '159k610 송현제3 종점', '격자블록'],
+  [11, 'S11', '호남고속선', '162k368 용흥터널 시점', '격자블록'], [12, 'S12', '호남고속선', '162k673 용흥터널 종점', '격자블록'],
+  [13, 'S13', '호남고속선', '172k058 마령터널 종점', '격자블록'], [14, 'S14', '호남고속선', '175k338 고룡터널 종점', '격자블록'],
+  [15, 'S15', '호남선', '70k130', 'U형수로+게비온+말뚝식옹벽'], [16, 'S16', '광주선', '2k710~2k800', 'U형수로+게비온+울타리'],
+  [17, 'S17', '전라선', '35k890', 'U형수로+낙석방지망+쏘일시멘트'], [18, 'S18', '전라선', '154k300', 'J형수로+토석류방호책'],
+  [19, 'S19', '광양제철선', '4k920~5k000', '낙석방지책'], [20, 'S20', '광양제철선', '8k950~9k020', 'U형수로+옹벽인상'],
+  [21, 'S21', '광양제철선', '10k680~10k800', 'U형수로+격자블록'], [22, 'S22', '광양제철선', '14k015', 'U형수로+낙석방지책'],
+  [23, 'S23', '광양제철선', '15k390', 'U형수로+격자블록'], [25, 'S25', '경전선', '135k741', 'U형수로+격자블록']
+];
+const ST = { DRAFT: '작성중', REVIEW: '검토대기', APPROVAL: '승인대기', DONE: '승인', REJECT: '반려', DEL: '삭제' };
+const EXP_FIELDS = [['id', 'ID'], ['docNo', '문서번호'], ['date', '사용일'], ['category', '비목'], ['pay', '결제수단'], ['site', '개소'], ['budget', '예산항목'],
+  ['vendor', '거래처'], ['memo', '적요'], ['total', '합계'], ['supply', '공급가'], ['vat', '부가세'], ['authorId', '작성자ID'], ['author', '작성자'], ['status', '상태'],
+  ['receipts', '영수증'], ['noReceipt', '영수증없음사유'], ['late', '누락분'], ['claimMonth', '청구월'], ['reviewer', '검토자'], ['reviewedAt', '검토일시'],
+  ['approver', '승인자'], ['approvedAt', '승인일시'], ['reason', '반려사유'], ['created', '작성일시'], ['updated', '수정일시']];
+const EXP_HEADERS = EXP_FIELDS.map(function (f) { return f[1]; });
+const MAX_RECEIPTS = 3;
+const MAX_RECEIPT_B64 = 2200000; // 약 1.6MB (화면에서 이미 줄여서 보낸다)
+
+function expAuth_(req) {
+  const s = getSession_(req.token);
+  if (!s) return { err: fail_('AUTH', '로그인이 필요하거나 시간이 지나 만료되었습니다.') };
+  if (s.must) return { err: fail_('MUST_CHANGE_PIN', '먼저 PIN을 변경해 주세요.') };
+  return { s: s };
+}
+
+function getMaster_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  return {
+    ok: true, categories: EXP_CATEGORIES, payMethods: EXP_PAY, budgetItems: EXP_BUDGET, catBudget: EXP_CAT_BUDGET, defaultBudget: EXP_DEFAULT_BUDGET,
+    sites: SITES.map(function (r) { return { no: r[0], code: r[1], route: r[2], location: r[3], work: r[4] }; }),
+    maxReceipts: MAX_RECEIPTS, today: nowStr_().slice(0, 10)
+  };
+}
+
+// ── 경비 시트 ──
+function ensureExpSheet_(ss) {
+  let sh = ss.getSheetByName(SHEET_EXP);
+  if (!sh) {
+    sh = ss.insertSheet(SHEET_EXP);
+    sh.getRange(1, 1, sh.getMaxRows(), EXP_HEADERS.length).setNumberFormat('@');
+    sh.getRange(1, 1, 1, EXP_HEADERS.length).setValues([EXP_HEADERS]);
+  }
+  return sh;
+}
+
+function expRows_(sh) {
+  const last = sh.getLastRow();
+  if (last < 2) return [];
+  return sh.getRange(2, 1, last - 1, EXP_HEADERS.length).getValues().map(function (r, i) {
+    const o = { _row: i + 2 };
+    EXP_FIELDS.forEach(function (f, k) { o[f[0]] = r[k] === null || r[k] === undefined ? '' : String(r[k]); });
+    return o;
+  });
+}
+
+function expWrite_(sh, o, rowNo) {
+  o.updated = nowStr_();
+  const arr = EXP_FIELDS.map(function (f) { return o[f[0]] === undefined || o[f[0]] === null ? '' : String(o[f[0]]); });
+  const row = rowNo || (sh.getLastRow() + 1);
+  sh.getRange(row, 1, 1, EXP_HEADERS.length).setNumberFormat('@');
+  sh.getRange(row, 1, 1, EXP_HEADERS.length).setValues([arr]);
+  o._row = row;
+}
+
+function expFind_(sh, id) {
+  const rows = expRows_(sh);
+  for (let i = 0; i < rows.length; i++) if (rows[i].id === id && rows[i].status !== ST.DEL) return rows[i];
+  return null;
+}
+
+function expReceiptsOf_(o) { try { const a = JSON.parse(o.receipts || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+
+function expPublic_(o) {
+  return {
+    id: o.id, docNo: o.docNo, date: o.date, category: o.category, pay: o.pay, site: Number(o.site) || 0, budget: o.budget, vendor: o.vendor, memo: o.memo,
+    total: Number(o.total) || 0, supply: Number(o.supply) || 0, vat: Number(o.vat) || 0, authorId: o.authorId, author: o.author, status: o.status,
+    receipts: expReceiptsOf_(o).map(function (r) { return { n: r.n, name: r.name, size: r.size }; }), noReceipt: o.noReceipt, late: o.late === 'Y', claimMonth: o.claimMonth,
+    reviewer: o.reviewer, reviewedAt: o.reviewedAt, approver: o.approver, approvedAt: o.approvedAt, reason: o.reason, created: o.created, updated: o.updated
+  };
+}
+
+function expClaimMonth_(o) { return o.claimMonth || String(o.date || '').slice(0, 7); }
+
+// ── 번호 ──
+/** 키별 일련번호. 쓰기 잠금 안에서만 부른다. */
+function nextSeq_(key) {
+  const sh = ensureSheet_(getDb_(), SHEET_SEQ, ['키', '마지막번호']);
+  const last = sh.getLastRow();
+  let n = 0, rowNo = 0;
+  if (last >= 2) {
+    const v = sh.getRange(2, 1, last - 1, 2).getValues();
+    for (let i = 0; i < v.length; i++) if (String(v[i][0]) === key) { n = Number(v[i][1]) || 0; rowNo = i + 2; }
+  }
+  n += 1;
+  if (rowNo) sh.getRange(rowNo, 2).setValues([[n]]);
+  else sh.appendRow([key, n]);
+  return n;
+}
+
+function pad_(n, w) { let t = String(n); while (t.length < w) t = '0' + t; return t; }
+
+/** 문서번호: 호남-경비-2026-001 (구분별로 해마다 001부터) */
+function nextDocNo_(kind) {
+  const y = nowStr_().slice(0, 4);
+  return '호남-' + kind + '-' + y + '-' + pad_(nextSeq_('DOC:' + kind + ':' + y), 3);
+}
+
+// ── 입력 확인 ──
+function intOrNull_(v) {
+  if (typeof v === 'number') return (isFinite(v) && Math.floor(v) === v) ? v : null;
+  if (typeof v === 'string' && /^\d{1,12}$/.test(v.trim())) return Number(v.trim());
+  return null;
+}
+
+function validDate_(d) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return false;
+  const y = Number(d.slice(0, 4)), m = Number(d.slice(5, 7)), dd = Number(d.slice(8, 10));
+  if (m < 1 || m > 12 || dd < 1) return false;
+  const dim = [31, (y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0)) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1];
+  return dd <= dim;
+}
+
+function cleanText_(v, max) { return String(v === undefined || v === null ? '' : v).replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim().slice(0, max); }
+
+/** 경비 항목 확인. 문제가 있으면 {err}, 없으면 {v}. 화면도 같은 규칙으로 먼저 확인한다. */
+function expValidate_(p) {
+  const v = {};
+  v.date = cleanText_(p.date, 10);
+  if (!validDate_(v.date)) return { err: fail_('PARAM', '사용일을 올바르게 입력해 주세요.') };
+  if (v.date > nowStr_().slice(0, 10)) return { err: fail_('PARAM', '오늘 이후 날짜는 입력할 수 없습니다.') };
+  if (v.date < '2026-01-01') return { err: fail_('PARAM', '사용일이 너무 오래되었습니다. 날짜를 확인해 주세요.') };
+  v.category = String(p.category || '');
+  if (EXP_CATEGORIES.indexOf(v.category) < 0) return { err: fail_('PARAM', '비목을 선택해 주세요.') };
+  v.pay = String(p.pay || '');
+  if (EXP_PAY.indexOf(v.pay) < 0) return { err: fail_('PARAM', '결제수단을 선택해 주세요.') };
+  const site = intOrNull_(p.site === undefined || p.site === '' ? 0 : p.site);
+  if (site === null || (site !== 0 && !SITES.some(function (r) { return r[0] === site; }))) return { err: fail_('PARAM', '개소를 선택해 주세요. (개소 없는 비용은 「공통」)') };
+  v.site = site;
+  v.budget = cleanText_(p.budget, 20) || EXP_CAT_BUDGET[v.category] || EXP_DEFAULT_BUDGET;
+  if (EXP_BUDGET.indexOf(v.budget) < 0) return { err: fail_('PARAM', '예산 항목을 선택해 주세요.') };
+  v.vendor = cleanText_(p.vendor, 60);
+  if (v.vendor.length < 1) return { err: fail_('PARAM', '사용처(거래처)를 입력해 주세요.') };
+  v.memo = cleanText_(p.memo, 200);
+  if (v.memo.length < 2) return { err: fail_('PARAM', '적요(지출 내용·목적)를 입력해 주세요.') };
+  const total = intOrNull_(p.total);
+  if (total === null || total < 1 || total > 1000000000) return { err: fail_('PARAM', '합계 금액은 1원 이상 10억원 이하의 숫자여야 합니다.') };
+  v.total = total;
+  let vat = (p.vat === undefined || p.vat === null || p.vat === '') ? null : intOrNull_(p.vat);
+  let supply = (p.supply === undefined || p.supply === null || p.supply === '') ? null : intOrNull_(p.supply);
+  if (vat === null && supply === null) { supply = Math.round(total / 1.1); vat = total - supply; }
+  else if (vat === null) vat = total - supply;
+  else if (supply === null) supply = total - vat;
+  if (vat === null || supply === null || vat < 0 || supply < 0 || supply + vat !== total) return { err: fail_('PARAM', '공급가액과 부가세를 더하면 합계 금액과 같아야 합니다.') };
+  v.supply = supply; v.vat = vat;
+  v.noReceipt = cleanText_(p.noReceipt, 100);
+  return { v: v };
+}
+
+// ── 영수증(드라이브) ──
+function receiptRoot_() {
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty('RECEIPT_ROOT');
+  if (id) { try { return DriveApp.getFolderById(id); } catch (e) { /* 지워졌으면 새로 만든다 */ } }
+  const f = DriveApp.createFolder('HN28_영수증');
+  props.setProperty('RECEIPT_ROOT', f.getId());
+  return f;
+}
+
+function receiptFolder_(ym) {
+  const root = receiptRoot_();
+  const it = root.getFoldersByName(ym);
+  return it.hasNext() ? it.next() : root.createFolder(ym);
+}
+
+function imageKind_(b) {
+  const u = function (i) { return (b[i] === undefined ? -1 : (b[i] & 255)); };
+  if (u(0) === 0xFF && u(1) === 0xD8 && u(2) === 0xFF) return { mime: 'image/jpeg', ext: 'jpg' };
+  if (u(0) === 0x89 && u(1) === 0x50 && u(2) === 0x4E && u(3) === 0x47) return { mime: 'image/png', ext: 'png' };
+  if (u(0) === 0x52 && u(1) === 0x49 && u(2) === 0x46 && u(3) === 0x46 && u(8) === 0x57 && u(9) === 0x45 && u(10) === 0x42 && u(11) === 0x50) return { mime: 'image/webp', ext: 'webp' };
+  return null;
+}
+
+/** 새 영수증 사진을 미리 확인한다(저장 전). 문제가 있으면 {err}, 없으면 {items:[{bytes,kind}]}. */
+function receiptsPrecheck_(list) {
+  const items = [];
+  for (let i = 0; i < list.length; i++) {
+    const r = list[i] || {};
+    const data = String(r.data || '');
+    if (!data || data.length > MAX_RECEIPT_B64 || !/^[A-Za-z0-9+\/=]+$/.test(data)) return { err: fail_('RECEIPT', '영수증 사진이 너무 크거나 형식이 맞지 않습니다. 다시 찍어 주세요.') };
+    let bytes;
+    try { bytes = Utilities.base64Decode(data); } catch (e) { return { err: fail_('RECEIPT', '영수증 사진을 읽지 못했습니다.') }; }
+    const kind = imageKind_(bytes);
+    if (!kind) return { err: fail_('RECEIPT', '사진(JPG·PNG·WEBP) 파일만 올릴 수 있습니다.') };
+    items.push({ bytes: bytes, kind: kind });
+  }
+  return { items: items };
+}
+
+function receiptsSave_(o, items) {
+  const have = expReceiptsOf_(o);
+  const folder = receiptFolder_(String(o.date).slice(0, 7));
+  let n = have.reduce(function (m, r) { return Math.max(m, Number(r.n) || 0); }, 0);
+  items.forEach(function (it) {
+    n += 1;
+    const name = o.id + '_' + n + '.' + it.kind.ext;
+    const f = folder.createFile(Utilities.newBlob(it.bytes, it.kind.mime, name));
+    have.push({ fid: f.getId(), name: name, size: it.bytes.length, n: n });
+  });
+  o.receipts = JSON.stringify(have);
+}
+
+// ── 목록 ──
+function listExpenses_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const sh = ensureExpSheet_(getDb_());
+  const rows = expRows_(sh).filter(function (o) { return o.status !== ST.DEL; });
+  let out;
+  if (req.queue) out = rows.filter(function (o) { return o.status === ST.REVIEW || o.status === ST.APPROVAL; });
+  else {
+    const ym = /^\d{4}-\d{2}$/.test(String(req.month || '')) ? String(req.month) : nowStr_().slice(0, 7);
+    out = rows.filter(function (o) { return expClaimMonth_(o) === ym; });
+  }
+  out.sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : (a.id < b.id ? 1 : -1); });
+  return { ok: true, items: out.map(expPublic_) };
+}
+
+// ── 저장(새로 쓰기·고치기) ──
+function saveExpense_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s;
+  const chk = expValidate_(req); if (chk.err) return chk.err;
+  const v = chk.v;
+  const add = Array.isArray(req.newReceipts) ? req.newReceipts : [];
+  const drop = Array.isArray(req.removeReceipts) ? req.removeReceipts.map(Number) : [];
+  if (add.length > MAX_RECEIPTS) return fail_('RECEIPT', '영수증 사진은 최대 ' + MAX_RECEIPTS + '장까지 올릴 수 있습니다.');
+  const pre = receiptsPrecheck_(add); if (pre.err) return pre.err;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const sh = ensureExpSheet_(getDb_());
+    let o = null;
+    if (req.id) {
+      o = expFind_(sh, String(req.id));
+      if (!o) return fail_('NOT_FOUND', '없는 경비입니다.');
+      if (o.authorId !== me.id) return fail_('FORBIDDEN', '본인이 쓴 경비만 고칠 수 있습니다.');
+      if (o.status !== ST.DRAFT && o.status !== ST.REJECT) return fail_('STATE', '이미 제출된 경비는 고칠 수 없습니다. 반려된 뒤에 고칠 수 있습니다.');
+    }
+    if (!req.force) {
+      const dup = expRows_(sh).filter(function (x) { return x.status !== ST.DEL && (!o || x.id !== o.id) && x.date === v.date && x.vendor === v.vendor && Number(x.total) === v.total; });
+      if (dup.length) return fail_('DUP', '같은 날짜·사용처·금액의 경비가 이미 있습니다. (' + (dup[0].docNo || dup[0].id) + ') 그래도 저장하려면 확인해 주세요.', { dup: dup.map(function (x) { return x.docNo || x.id; }) });
+    }
+    if (!o) {
+      o = { id: 'EXP-' + nowStr_().slice(0, 7).replace('-', '') + '-' + pad_(nextSeq_('EXP:' + nowStr_().slice(0, 7)), 4), docNo: '', status: ST.DRAFT, authorId: me.id, author: me.name, receipts: '[]', late: '', claimMonth: '', reviewer: '', reviewedAt: '', approver: '', approvedAt: '', reason: '', created: nowStr_() };
+    }
+    const keep = expReceiptsOf_(o).filter(function (r) { return drop.indexOf(Number(r.n)) < 0; });
+    if (keep.length + pre.items.length > MAX_RECEIPTS) return fail_('RECEIPT', '영수증 사진은 최대 ' + MAX_RECEIPTS + '장까지 올릴 수 있습니다.');
+    o.receipts = JSON.stringify(keep);
+    o.date = v.date; o.category = v.category; o.pay = v.pay; o.site = String(v.site); o.budget = v.budget; o.vendor = v.vendor; o.memo = v.memo;
+    o.total = String(v.total); o.supply = String(v.supply); o.vat = String(v.vat); o.noReceipt = v.noReceipt;
+    if (pre.items.length) receiptsSave_(o, pre.items);
+    const isNew = !o._row;
+    expWrite_(sh, o, o._row);
+    audit_(me.id, isNew ? '경비작성' : '경비수정', o.id + (o.docNo ? ' / ' + o.docNo : ''));
+    return { ok: true, item: expPublic_(o) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function submitExpense_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const sh = ensureExpSheet_(getDb_());
+    const o = expFind_(sh, String(req.id || ''));
+    if (!o) return fail_('NOT_FOUND', '없는 경비입니다.');
+    if (o.authorId !== me.id) return fail_('FORBIDDEN', '본인이 쓴 경비만 제출할 수 있습니다.');
+    if (o.status !== ST.DRAFT && o.status !== ST.REJECT) return fail_('STATE', '이미 제출된 경비입니다.');
+    if (!expReceiptsOf_(o).length && !o.noReceipt) return fail_('RECEIPT', '영수증 사진을 올리거나, 영수증이 없는 사유를 적어 주세요.');
+    if (!o.docNo) o.docNo = nextDocNo_('경비');
+    o.reason = ''; o.reviewer = ''; o.reviewedAt = ''; o.approver = ''; o.approvedAt = '';
+    o.status = me.role === '공무' ? ST.APPROVAL : ST.REVIEW; // 공무가 쓴 경비는 본인이 검토할 수 없으므로 검토 단계를 건너뛴다
+    expWrite_(sh, o, o._row);
+    audit_(me.id, '경비제출', o.docNo + ' → ' + o.status);
+    return { ok: true, item: expPublic_(o) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function reviewExpense_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s;
+  if (me.role !== '공무' && me.role !== MANAGER_ROLE) return fail_('FORBIDDEN', '공무 또는 현장소장만 검토할 수 있습니다.');
+  const reason = cleanText_(req.reason, 200);
+  const ok = req.decision === 'ok';
+  if (!ok && reason.length < 2) return fail_('PARAM', '반려 사유를 적어 주세요.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const sh = ensureExpSheet_(getDb_());
+    const o = expFind_(sh, String(req.id || ''));
+    if (!o) return fail_('NOT_FOUND', '없는 경비입니다.');
+    if (o.status !== ST.REVIEW) return fail_('STATE', '검토 대기 중인 경비가 아닙니다.');
+    if (o.authorId === me.id) return fail_('SELF', '본인이 쓴 경비는 본인이 검토할 수 없습니다.');
+    if (ok) { o.status = ST.APPROVAL; o.reviewer = me.name; o.reviewedAt = nowStr_(); o.reason = ''; }
+    else { o.status = ST.REJECT; o.reviewer = me.name; o.reviewedAt = nowStr_(); o.reason = reason; }
+    expWrite_(sh, o, o._row);
+    audit_(me.id, ok ? '경비검토' : '경비반려(검토)', o.docNo);
+    return { ok: true, item: expPublic_(o) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function approveExpense_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s;
+  if (me.role !== MANAGER_ROLE) return fail_('FORBIDDEN', '현장소장만 승인할 수 있습니다.');
+  const reason = cleanText_(req.reason, 200);
+  const ok = req.decision === 'ok';
+  if (!ok && reason.length < 2) return fail_('PARAM', '반려 사유를 적어 주세요.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const sh = ensureExpSheet_(getDb_());
+    const o = expFind_(sh, String(req.id || ''));
+    if (!o) return fail_('NOT_FOUND', '없는 경비입니다.');
+    if (o.status !== ST.APPROVAL) return fail_('STATE', '승인 대기 중인 경비가 아닙니다.');
+    if (ok) { o.status = ST.DONE; o.approver = me.name; o.approvedAt = nowStr_(); o.reason = ''; }
+    else { o.status = ST.REJECT; o.approver = me.name; o.approvedAt = nowStr_(); o.reason = reason; }
+    expWrite_(sh, o, o._row);
+    audit_(me.id, ok ? '경비승인' : '경비반려(승인)', o.docNo);
+    return { ok: true, item: expPublic_(o) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** 작성중·반려 상태의 본인 경비만 지운다. 번호가 이미 나간 건은 기록을 남기고 삭제 표시만 한다. */
+function deleteExpense_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const sh = ensureExpSheet_(getDb_());
+    const o = expFind_(sh, String(req.id || ''));
+    if (!o) return fail_('NOT_FOUND', '없는 경비입니다.');
+    if (o.authorId !== me.id) return fail_('FORBIDDEN', '본인이 쓴 경비만 지울 수 있습니다.');
+    if (o.status !== ST.DRAFT && o.status !== ST.REJECT) return fail_('STATE', '제출된 경비는 지울 수 없습니다.');
+    o.status = ST.DEL;
+    expWrite_(sh, o, o._row);
+    audit_(me.id, '경비삭제', o.docNo || o.id);
+    return { ok: true };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function getReceipt_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const sh = ensureExpSheet_(getDb_());
+  const o = expFind_(sh, String(req.id || ''));
+  if (!o) return fail_('NOT_FOUND', '없는 경비입니다.');
+  const list = expReceiptsOf_(o);
+  const r = list[Number(req.index)];
+  if (!r) return fail_('NOT_FOUND', '없는 영수증입니다.');
+  let blob;
+  try { blob = DriveApp.getFileById(r.fid).getBlob(); } catch (e) { return fail_('NOT_FOUND', '영수증 파일을 찾을 수 없습니다.'); }
+  return { ok: true, name: r.name, mime: blob.getContentType(), data: Utilities.base64Encode(blob.getBytes()) };
 }
