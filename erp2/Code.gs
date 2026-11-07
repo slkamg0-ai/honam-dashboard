@@ -21,6 +21,7 @@ const SHEET_EXP = '경비';
 const SHEET_SEQ = '번호';
 const SHEET_CLOSE = '마감';
 const SHEET_OPS = '작업일보';
+const SHEET_HQ = '본사제출';
 const SESSION_TTL_SEC = 21600; // 6시간 (CacheService 최대)
 const MAX_FAILS = 5;
 const LOCK_MIN = 15;
@@ -40,7 +41,7 @@ function setup() {
   const ss = getDb_();
   const sh = ensureUsersSheet_(ss);
   ensureSheet_(ss, SHEET_AUDIT, ['시각', '로그인ID', '동작', '결과']);
-  ensureExpSheet_(ss); ensureSheet_(ss, SHEET_SEQ, ['키', '마지막번호']); ensureCloseSheet_(ss); ensureOpsSheet_(ss);
+  ensureExpSheet_(ss); ensureSheet_(ss, SHEET_SEQ, ['키', '마지막번호']); ensureCloseSheet_(ss); ensureOpsSheet_(ss); ensureHqSheet_(ss);
   receiptRoot_(); // 영수증 폴더를 만들면서 드라이브 권한 승인을 받는다
   const rows = readUsers_(sh);
   const made = [];
@@ -74,7 +75,7 @@ function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.4' }; }
+function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.5' }; }
 
 function route_(req) {
   const t0 = Date.now();
@@ -98,6 +99,7 @@ function route_(req) {
       case 'getReceipt': out = getReceipt_(req); break;
       case 'closeMonth': out = closeMonth_(req); break;
       case 'reopenMonth': out = reopenMonth_(req); break;
+      case 'hqMonth': out = hqMonth_(req); break;
       case 'listOps': out = listOps_(req); break;
       case 'saveOps': out = saveOps_(req); break;
       case 'submitOps': out = submitOps_(req); break;
@@ -454,7 +456,7 @@ function getMaster_(req) {
     ok: true, categories: EXP_CATEGORIES, payMethods: EXP_PAY, budgetItems: EXP_BUDGET, catBudget: EXP_CAT_BUDGET, defaultBudget: EXP_DEFAULT_BUDGET,
     sites: SITES.map(function (r) { const p = OPS_PLAN[r[0]] || ['', '']; return { no: r[0], code: r[1], route: r[2], location: r[3], work: r[4], planStart: p[0], planEnd: p[1] }; }),
     holidays: OPS_HOLIDAYS, opsWeather: OPS_WEATHER, opsKinds: OPS_KINDS,
-    execBudget: EXEC_BUDGET, closed: closedMonths_(), manager: siteManagerName_(),
+    execBudget: EXEC_BUDGET, closed: closedMonths_(true), manager: siteManagerName_(),
     maxReceipts: MAX_RECEIPTS, today: nowStr_().slice(0, 10)
   };
 }
@@ -529,17 +531,49 @@ function ensureCloseSheet_(ss) {
 }
 
 /** 연월별 가장 마지막 줄이 '마감'인 달만 마감된 달이다(해제하면 다음 줄에 '해제'가 쌓인다). */
-function closedMonths_() {
+function closedMonths_(withHq) {
   const sh = ensureCloseSheet_(getDb_());
   const last = sh.getLastRow();
   if (last < 2) return [];
   const latest = {};
   sh.getRange(2, 1, last - 1, CLOSE_HEADERS.length).getValues().forEach(function (r) { latest[String(r[0])] = r; });
+  const hq = withHq ? hqStates_() : {};
   return Object.keys(latest).sort().filter(function (ym) { return String(latest[ym][1]) === '마감'; }).map(function (ym) {
     const r = latest[ym];
-    return { ym: ym, by: String(r[2]), at: String(r[3]), count: Number(r[4]) || 0, total: Number(r[5]) || 0 };
+    return { ym: ym, by: String(r[2]), at: String(r[3]), count: Number(r[4]) || 0, total: Number(r[5]) || 0, hq: withHq ? (hq[ym] || hqNone_()) : undefined };
   });
 }
+
+// ── 본사 제출·확인 표시 (본사 결재는 메일·전화로 하므로 시스템은 기록만 한다) ──
+const HQ_HEADERS = ['연월', '단계', '처리자', '처리일시', '메모'];
+const HQ_STEPS = ['제출', '확인', '취소'];
+function ensureHqSheet_(ss) {
+  let sh = ss.getSheetByName(SHEET_HQ);
+  if (!sh) {
+    sh = ss.insertSheet(SHEET_HQ);
+    sh.getRange(1, 1, sh.getMaxRows(), HQ_HEADERS.length).setNumberFormat('@');
+    sh.getRange(1, 1, 1, HQ_HEADERS.length).setValues([HQ_HEADERS]);
+  }
+  return sh;
+}
+function hqNone_() { return { state: '', by: '', at: '', note: '', submitAt: '', submitBy: '' }; }
+/** 연월별 가장 마지막 줄이 현재 상태다. 제출·확인이면 그 상태, 취소(또는 줄 없음)면 빈 상태. */
+function hqStates_() {
+  const sh = ensureHqSheet_(getDb_());
+  const last = sh.getLastRow(), out = {};
+  if (last < 2) return out;
+  const by = {};
+  sh.getRange(2, 1, last - 1, HQ_HEADERS.length).getValues().forEach(function (r) { (by[String(r[0])] = by[String(r[0])] || []).push(r); });
+  Object.keys(by).forEach(function (ym) {
+    const rows = by[ym], r = rows[rows.length - 1], st = String(r[1]);
+    if (st === '취소') { out[ym] = hqNone_(); return; }
+    let sub = null;
+    for (let i = rows.length - 1; i >= 0; i--) { if (String(rows[i][1]) === '취소') break; if (String(rows[i][1]) === '제출') { sub = rows[i]; break; } }
+    out[ym] = { state: st, by: String(r[2]), at: String(r[3]), note: String(r[4]), submitAt: sub ? String(sub[3]) : '', submitBy: sub ? String(sub[2]) : '' };
+  });
+  return out;
+}
+function hqState_(ym) { return hqStates_()[ym] || hqNone_(); }
 
 function isClosed_(list, ym) { return list.some(function (c) { return c.ym === ym; }); }
 
@@ -700,7 +734,7 @@ function listExpenses_(req) {
     out = rows.filter(function (o) { return expClaimMonth_(o) === ym; });
   }
   out.sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : (a.id < b.id ? 1 : -1); });
-  return { ok: true, items: out.map(expPublic_), closed: closedMonths_() };
+  return { ok: true, items: out.map(expPublic_), closed: closedMonths_(true) };
 }
 
 // ── 저장(새로 쓰기·고치기) ──
@@ -1049,7 +1083,7 @@ function listOps_(req) {
     if (!cur || o.date > cur.date || (o.date === cur.date && Number(o.progress) > cur.pct)) latest[s] = { date: o.date, pct: Number(o.progress) };
   });
   out.sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : (a.id < b.id ? 1 : -1); });
-  return { ok: true, items: out.map(opsPublic_), closed: closedMonths_(), latest: latest };
+  return { ok: true, items: out.map(opsPublic_), closed: closedMonths_(true), latest: latest };
 }
 
 function saveOps_(req) {
@@ -1169,6 +1203,34 @@ function deleteOps_(req) {
   }
 }
 
+/** 본사 제출·확인 표시. 제출: 현장소장·공무, 확인: 현장소장, 취소: 현장소장(사유 필수). 마감된 달만. */
+function hqMonth_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s;
+  const ym = String(req.ym || ''), step = String(req.step || ''), note = cleanText_(req.note, 200);
+  if (HQ_STEPS.indexOf(step) < 0) return fail_('PARAM', '처리 단계를 알 수 없습니다.');
+  if (step === '제출' && me.role !== MANAGER_ROLE && me.role !== '공무') return fail_('FORBIDDEN', '현장소장과 공무만 본사 제출을 표시할 수 있습니다.');
+  if (step !== '제출' && me.role !== MANAGER_ROLE) return fail_('FORBIDDEN', '현장소장만 본사 확인·취소를 표시할 수 있습니다.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const ss = getDb_();
+    if (!isClosed_(closedMonths_(), ym)) return fail_('STATE', ym + '은(는) 마감된 달이 아닙니다. 마감한 뒤에 본사 제출을 표시할 수 있습니다.');
+    const cur = hqState_(ym).state;
+    if (step === '제출' && cur) return fail_('STATE', ym + '은(는) 이미 본사 ' + cur + ' 상태입니다.');
+    if (step === '확인' && cur !== '제출') return fail_('STATE', cur === '확인' ? '이미 본사 확인으로 표시되어 있습니다.' : '본사 제출을 먼저 표시해야 합니다.');
+    if (step === '취소') {
+      if (!cur) return fail_('STATE', '취소할 본사 제출 표시가 없습니다.');
+      if (note.length < 2) return fail_('PARAM', '취소하는 사유를 적어 주세요.');
+    }
+    ensureHqSheet_(ss).appendRow([ym, step, me.name, nowStr_(), note]);
+    audit_(me.id, '본사' + step, ym + (note ? ' / ' + note : ''));
+    return { ok: true, closed: closedMonths_(true) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 /** 월 마감(현장소장만). 마감하면 그 달 청구분은 승인·검토 처리가 막히고, 늦게 나온 영수증은 누락분으로 다음 달에 올린다. */
 function closeMonth_(req) {
   const g = expAuth_(req); if (g.err) return g.err;
@@ -1187,7 +1249,7 @@ function closeMonth_(req) {
     const at = nowStr_();
     ensureCloseSheet_(ss).appendRow([ym, '마감', me.name, at, String(done.length), String(total), '']);
     audit_(me.id, '월마감', ym + ' / 승인 ' + done.length + '건 ' + total + '원 / 미승인 ' + (rows.length - done.length) + '건');
-    return { ok: true, closed: closedMonths_(), count: done.length, total: total, pending: rows.length - done.length };
+    return { ok: true, closed: closedMonths_(true), count: done.length, total: total, pending: rows.length - done.length };
   } finally {
     lock.releaseLock();
   }
@@ -1206,8 +1268,9 @@ function reopenMonth_(req) {
     const ss = getDb_();
     if (!isClosed_(closedMonths_(), ym)) return fail_('STATE', ym + '은(는) 마감된 달이 아닙니다.');
     ensureCloseSheet_(ss).appendRow([ym, '해제', me.name, nowStr_(), '', '', reason]);
+    if (hqState_(ym).state) ensureHqSheet_(ss).appendRow([ym, '취소', me.name, nowStr_(), '마감 해제로 초기화']);
     audit_(me.id, '마감해제', ym + ' / ' + reason);
-    return { ok: true, closed: closedMonths_() };
+    return { ok: true, closed: closedMonths_(true) };
   } finally {
     lock.releaseLock();
   }
