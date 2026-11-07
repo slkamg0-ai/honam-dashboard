@@ -62,7 +62,7 @@
     var sum = $('cSummary'), box = $('cChecks'); sum.textContent = ''; box.textContent = '';
     show('cLock', false);
     ['cExport', 'cClose', 'cReopen'].forEach(function (b) { $(b).disabled = false; });
-    show('cExport', role() === '현장소장' || role() === '공무'); show('cClose', false); show('cReopen', false);
+    show('cExport', role() === '현장소장' || role() === '공무'); show('cClose', false); show('cReopen', false); ['cHqSubmit', 'cHqConfirm', 'cHqCancel'].forEach(function (b) { show(b, false); });
     if (!data) { ['cExport', 'cClose', 'cReopen'].forEach(function (b) { $(b).disabled = true; }); return; }
     var d = data;
     var verdict = d.closed ? ['마감됨', '#475569'] : d.bad ? ['확인 필요 ' + (d.bad + d.warn) + '건', '#b91c1c'] : d.warn ? ['보완 권장 ' + d.warn + '건', '#b45309'] : ['마감 가능', '#15803d'];
@@ -78,6 +78,17 @@
       var ll = $('cLock'); ll.textContent = d.ym + ' 마감됨 · ' + d.closed.by + ' · ' + d.closed.at + ' — 이 달 청구분의 검토·승인은 막혀 있습니다. 늦게 나온 영수증은 누락분으로 다음 달에 올립니다.'; show('cLock', true);
     }
     show('cClose', isMgr() && !d.closed); show('cReopen', isMgr() && !!d.closed);
+    var hq = d.closed ? (d.closed.hq || { state: '' }) : null;
+    show('cHqSubmit', !!hq && !hq.state && (isMgr() || role() === '공무'));
+    show('cHqConfirm', !!hq && hq.state === '제출' && isMgr());
+    show('cHqCancel', !!hq && !!hq.state && isMgr());
+    if (hq) {
+      var hl = el('div', 'desc'); hl.style.marginTop = '8px';
+      hl.textContent = !hq.state ? '본사 제출: 아직 표시되지 않았습니다. 엑셀을 본사에 보낸 뒤 「본사 제출했음 표시」를 눌러 주세요. (본사 결재는 메일·전화로 하므로 여기에는 기록만 남깁니다.)'
+        : hq.state === '제출' ? '본사 제출함 · ' + hq.by + ' · ' + hq.at + (hq.note ? ' · ' + hq.note : '') + ' — 본사 확인을 받으면 「본사 확인 받았음 표시」를 눌러 주세요.'
+        : '본사 확인 완료 · ' + hq.by + ' · ' + hq.at + (hq.note ? ' · ' + hq.note : '') + ' (제출: ' + (hq.submitBy || '') + ' · ' + (hq.submitAt || '') + ')';
+      box.appendChild(hl);
+    }
     if (!isMgr()) { var n = el('div', 'desc', '마감과 마감 해제는 현장소장만 할 수 있습니다.'); n.style.marginTop = '8px'; box.appendChild(n); }
   }
 
@@ -112,6 +123,26 @@
       closedList = r.closed || closedList; note = ym + ' 마감을 해제했습니다. 고친 뒤 다시 마감해 주세요.'; load();
     });
   };
+
+  // ── 본사 제출·확인 표시 ──
+  function hqAct(step, ask, needNote, done) {
+    if (busy || !data || !data.closed) return;
+    var ym = data.ym;
+    var note2 = prompt(ym + ' ' + ask);
+    if (note2 === null) return;
+    note2 = String(note2).trim();
+    if (needNote && note2.length < 2) { setMsg('사유를 적어야 합니다.'); return; }
+    busy = true; ['cHqSubmit', 'cHqConfirm', 'cHqCancel'].forEach(function (b) { $(b).disabled = true; }); setMsg('저장하는 중…', true);
+    E.api('hqMonth', { ym: ym, step: step, note: note2 }, 30000).then(function (r) {
+      busy = false; ['cHqSubmit', 'cHqConfirm', 'cHqCancel'].forEach(function (b) { $(b).disabled = false; });
+      if (E.authLost(r)) return;
+      if (!r.ok) { setMsg(r.message || '저장하지 못했습니다.'); return; }
+      closedList = r.closed || closedList; note = ym + ' ' + done; load();
+    });
+  }
+  $('cHqSubmit').onclick = function () { hqAct('제출', '본사 제출을 표시합니다.\n어떻게 제출했는지 간단히 적어 주세요 (예: 메일 발송, 비워 둬도 됩니다):', false, '본사 제출을 표시했습니다.'); };
+  $('cHqConfirm').onclick = function () { hqAct('확인', '본사 확인을 표시합니다.\n확인 방법·담당자를 적어 주세요 (예: 전화 확인, 비워 둬도 됩니다):', false, '본사 확인을 표시했습니다.'); };
+  $('cHqCancel').onclick = function () { hqAct('취소', '본사 제출·확인 표시를 취소합니다.\n취소 사유를 적어 주세요 (필수, 기록으로 남습니다):', true, '본사 제출 표시를 취소했습니다.'); };
 
   // ── 엑셀 ──
   $('cExport').onclick = function () {
