@@ -1,5 +1,5 @@
 /**
- * HN28 현장 ERP v2 — 서버 (Apps Script)  1단계 로그인·직원 관리 / 2단계 경비 입력·결재·문서번호·영수증
+ * HN28 현장 ERP v2 — 서버 (Apps Script)  1단계 로그인·직원 관리 / 2단계 경비 입력·결재·문서번호·영수증 / 3단계 월 마감·누락분
  *
  * 화면(GitHub Pages)이 보낸 요청에 JSON으로 답한다. 데이터는 구글 시트(HN28_ERP_DB)에만 둔다.
  *  - 모든 요청은 POST(text/plain, JSON 본문). GET 은 ping 만 허용한다(주소창에 PIN 이 남지 않게).
@@ -19,6 +19,7 @@ const ROLES = ['현장소장', '공무', '공사'];
 const MANAGER_ROLE = '현장소장';
 const SHEET_EXP = '경비';
 const SHEET_SEQ = '번호';
+const SHEET_CLOSE = '마감';
 const SESSION_TTL_SEC = 21600; // 6시간 (CacheService 최대)
 const MAX_FAILS = 5;
 const LOCK_MIN = 15;
@@ -38,7 +39,7 @@ function setup() {
   const ss = getDb_();
   const sh = ensureUsersSheet_(ss);
   ensureSheet_(ss, SHEET_AUDIT, ['시각', '로그인ID', '동작', '결과']);
-  ensureExpSheet_(ss); ensureSheet_(ss, SHEET_SEQ, ['키', '마지막번호']);
+  ensureExpSheet_(ss); ensureSheet_(ss, SHEET_SEQ, ['키', '마지막번호']); ensureCloseSheet_(ss);
   receiptRoot_(); // 영수증 폴더를 만들면서 드라이브 권한 승인을 받는다
   const rows = readUsers_(sh);
   const made = [];
@@ -72,7 +73,7 @@ function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.2' }; }
+function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.3' }; }
 
 function route_(req) {
   const t0 = Date.now();
@@ -94,6 +95,8 @@ function route_(req) {
       case 'approveExpense': out = approveExpense_(req); break;
       case 'deleteExpense': out = deleteExpense_(req); break;
       case 'getReceipt': out = getReceipt_(req); break;
+      case 'closeMonth': out = closeMonth_(req); break;
+      case 'reopenMonth': out = reopenMonth_(req); break;
       default: out = fail_('UNKNOWN_ACTION', '알 수 없는 요청입니다.');
     }
   } catch (err) {
@@ -397,6 +400,16 @@ const EXP_PAY = ['법인카드', '현장전도금(현금/이체)', '개인카드
 const EXP_BUDGET = ['직접노무비', '장비사용료', '주요자재대', '가설재대', '외주공사비', '현장운영경비', '안전관리비', '품질관리비', '기타경비'];
 const EXP_CAT_BUDGET = { '안전관리비(안전용품/TBM)': '안전관리비', '현장소모품(잡자재/공구)': '주요자재대' };
 const EXP_DEFAULT_BUDGET = '현장운영경비';
+// 실행예산(공급가액). 이전 ERP의 「호남고속선_실행예산.xlsx」 비목별 집계(계약금액 78%, 선공제 13항목 반영)를 그대로 옮긴 값. 간접노무비(상주 인력 급여) 4.8억은 경비 입력 대상이 아니라 제외.
+const EXEC_BUDGET = [
+  { label: '직접노무비', items: ['직접노무비'], budget: 2197913952 },
+  { label: '주요자재대', items: ['주요자재대'], budget: 668175302 },
+  { label: '장비·가설재·외주', items: ['장비사용료', '가설재대', '외주공사비'], budget: 625657852 },
+  { label: '현장운영경비', items: ['현장운영경비'], budget: 110880000 },
+  { label: '안전관리비', items: ['안전관리비'], budget: 155634276 },
+  { label: '품질관리비', items: ['품질관리비'], budget: 55517837 },
+  { label: '기타경비', items: ['기타경비'], budget: 91737863 }
+];
 // 개소 마스터(협업/master/개소_마스터.csv, 2026-11-06). 0 = 공통(개소 없음). 24번은 결번.
 const SITES = [
   [27, 'S27', '전라선', '109k310', '비탈면완화'], [26, 'S26', '호남고속선', '83k138~473 (익산)', 'U형수로 이어올리기'],
@@ -434,6 +447,7 @@ function getMaster_(req) {
   return {
     ok: true, categories: EXP_CATEGORIES, payMethods: EXP_PAY, budgetItems: EXP_BUDGET, catBudget: EXP_CAT_BUDGET, defaultBudget: EXP_DEFAULT_BUDGET,
     sites: SITES.map(function (r) { return { no: r[0], code: r[1], route: r[2], location: r[3], work: r[4] }; }),
+    execBudget: EXEC_BUDGET, closed: closedMonths_(), manager: siteManagerName_(),
     maxReceipts: MAX_RECEIPTS, today: nowStr_().slice(0, 10)
   };
 }
@@ -485,7 +499,57 @@ function expPublic_(o) {
   };
 }
 
+/** 엑셀에 적을 현장소장 이름(사용 중인 현장소장 계정 중 첫 사람). */
+function siteManagerName_() {
+  const rows = readUsers_(ensureUsersSheet_(getDb_()));
+  for (let i = 0; i < rows.length; i++) if (rows[i][COL.role] === MANAGER_ROLE && rows[i][COL.active] === 'Y') return String(rows[i][COL.name]);
+  return '';
+}
+
 function expClaimMonth_(o) { return o.claimMonth || String(o.date || '').slice(0, 7); }
+
+// ── 월 마감 ──
+const CLOSE_HEADERS = ['연월', '상태', '처리자', '처리일시', '건수', '합계', '사유'];
+
+function ensureCloseSheet_(ss) {
+  let sh = ss.getSheetByName(SHEET_CLOSE);
+  if (!sh) {
+    sh = ss.insertSheet(SHEET_CLOSE);
+    sh.getRange(1, 1, sh.getMaxRows(), CLOSE_HEADERS.length).setNumberFormat('@'); // 2026-11 이 날짜로 바뀌지 않게 글자로 둔다
+    sh.getRange(1, 1, 1, CLOSE_HEADERS.length).setValues([CLOSE_HEADERS]);
+  }
+  return sh;
+}
+
+/** 연월별 가장 마지막 줄이 '마감'인 달만 마감된 달이다(해제하면 다음 줄에 '해제'가 쌓인다). */
+function closedMonths_() {
+  const sh = ensureCloseSheet_(getDb_());
+  const last = sh.getLastRow();
+  if (last < 2) return [];
+  const latest = {};
+  sh.getRange(2, 1, last - 1, CLOSE_HEADERS.length).getValues().forEach(function (r) { latest[String(r[0])] = r; });
+  return Object.keys(latest).sort().filter(function (ym) { return String(latest[ym][1]) === '마감'; }).map(function (ym) {
+    const r = latest[ym];
+    return { ym: ym, by: String(r[2]), at: String(r[3]), count: Number(r[4]) || 0, total: Number(r[5]) || 0 };
+  });
+}
+
+function isClosed_(list, ym) { return list.some(function (c) { return c.ym === ym; }); }
+
+function nextYm_(ym) {
+  let y = Number(ym.slice(0, 4)), m = Number(ym.slice(5, 7)) + 1;
+  if (m > 12) { m = 1; y += 1; }
+  return y + '-' + pad_(m, 2);
+}
+
+/** 마감된 달의 영수증은 마감을 풀지 않고 다음에 열려 있는 달에 「누락분」으로 청구한다. */
+function lateClaimMonth_(dateYm, list) {
+  let ym = nowStr_().slice(0, 7);
+  const nx = nextYm_(dateYm);
+  if (ym < nx) ym = nx;
+  for (let i = 0; i < 36 && isClosed_(list, ym); i++) ym = nextYm_(ym);
+  return ym;
+}
 
 // ── 번호 ──
 /** 키별 일련번호. 쓰기 잠금 안에서만 부른다. */
@@ -622,12 +686,14 @@ function listExpenses_(req) {
   const rows = expRows_(sh).filter(function (o) { return o.status !== ST.DEL; });
   let out;
   if (req.queue) out = rows.filter(function (o) { return o.status === ST.REVIEW || o.status === ST.APPROVAL; });
-  else {
+  else if (/^\d{4}-\d{2}$/.test(String(req.upTo || ''))) { // 착공일부터 이 달까지 승인된 경비(실행예산 누계용)
+    out = rows.filter(function (o) { return o.status === ST.DONE && expClaimMonth_(o) <= String(req.upTo); });
+  } else {
     const ym = /^\d{4}-\d{2}$/.test(String(req.month || '')) ? String(req.month) : nowStr_().slice(0, 7);
     out = rows.filter(function (o) { return expClaimMonth_(o) === ym; });
   }
   out.sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : (a.id < b.id ? 1 : -1); });
-  return { ok: true, items: out.map(expPublic_) };
+  return { ok: true, items: out.map(expPublic_), closed: closedMonths_() };
 }
 
 // ── 저장(새로 쓰기·고치기) ──
@@ -685,6 +751,15 @@ function submitExpense_(req) {
     if (o.authorId !== me.id) return fail_('FORBIDDEN', '본인이 쓴 경비만 제출할 수 있습니다.');
     if (o.status !== ST.DRAFT && o.status !== ST.REJECT) return fail_('STATE', '이미 제출된 경비입니다.');
     if (!expReceiptsOf_(o).length && !o.noReceipt) return fail_('RECEIPT', '영수증 사진을 올리거나, 영수증이 없는 사유를 적어 주세요.');
+    const closed = closedMonths_();
+    const dateYm = String(o.date).slice(0, 7);
+    if (isClosed_(closed, dateYm)) {
+      const cm = lateClaimMonth_(dateYm, closed);
+      if (String(req.lateOk || '') !== cm) {
+        return fail_('LATE', dateYm + '은(는) 이미 마감된 달입니다. 이 경비를 「' + dateYm + ' 누락분」으로 ' + cm + ' 청구분에 올릴까요? (사용일은 그대로입니다.)', { claimMonth: cm, dateYm: dateYm });
+      }
+      o.late = 'Y'; o.claimMonth = cm;
+    } else { o.late = ''; o.claimMonth = ''; }
     if (!o.docNo) o.docNo = nextDocNo_('경비');
     o.reason = ''; o.reviewer = ''; o.reviewedAt = ''; o.approver = ''; o.approvedAt = '';
     o.status = me.role === '공무' ? ST.APPROVAL : ST.REVIEW; // 공무가 쓴 경비는 본인이 검토할 수 없으므로 검토 단계를 건너뛴다
@@ -711,6 +786,7 @@ function reviewExpense_(req) {
     if (!o) return fail_('NOT_FOUND', '없는 경비입니다.');
     if (o.status !== ST.REVIEW) return fail_('STATE', '검토 대기 중인 경비가 아닙니다.');
     if (o.authorId === me.id) return fail_('SELF', '본인이 쓴 경비는 본인이 검토할 수 없습니다.');
+    if (ok && isClosed_(closedMonths_(), expClaimMonth_(o))) return fail_('CLOSED', expClaimMonth_(o) + '은(는) 마감된 달입니다. 마감 뒤에 처리할 수 없으니 반려해서 작성자가 누락분으로 다시 제출하게 하거나, 현장소장이 마감을 해제해 주세요.');
     if (ok) { o.status = ST.APPROVAL; o.reviewer = me.name; o.reviewedAt = nowStr_(); o.reason = ''; }
     else { o.status = ST.REJECT; o.reviewer = me.name; o.reviewedAt = nowStr_(); o.reason = reason; }
     expWrite_(sh, o, o._row);
@@ -735,6 +811,7 @@ function approveExpense_(req) {
     const o = expFind_(sh, String(req.id || ''));
     if (!o) return fail_('NOT_FOUND', '없는 경비입니다.');
     if (o.status !== ST.APPROVAL) return fail_('STATE', '승인 대기 중인 경비가 아닙니다.');
+    if (ok && isClosed_(closedMonths_(), expClaimMonth_(o))) return fail_('CLOSED', expClaimMonth_(o) + '은(는) 마감된 달입니다. 마감 뒤에 승인할 수 없으니 반려해서 작성자가 누락분으로 다시 제출하게 하거나, 마감을 해제해 주세요.');
     if (ok) { o.status = ST.DONE; o.approver = me.name; o.approvedAt = nowStr_(); o.reason = ''; }
     else { o.status = ST.REJECT; o.approver = me.name; o.approvedAt = nowStr_(); o.reason = reason; }
     expWrite_(sh, o, o._row);
@@ -761,6 +838,50 @@ function deleteExpense_(req) {
     expWrite_(sh, o, o._row);
     audit_(me.id, '경비삭제', o.docNo || o.id);
     return { ok: true };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** 월 마감(현장소장만). 마감하면 그 달 청구분은 승인·검토 처리가 막히고, 늦게 나온 영수증은 누락분으로 다음 달에 올린다. */
+function closeMonth_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s;
+  if (me.role !== MANAGER_ROLE) return fail_('FORBIDDEN', '현장소장만 월 마감을 할 수 있습니다.');
+  const ym = String(req.ym || '');
+  if (!/^\d{4}-\d{2}$/.test(ym) || ym < '2026-01' || ym > nowStr_().slice(0, 7) || Number(ym.slice(5)) < 1 || Number(ym.slice(5)) > 12) return fail_('PARAM', '마감할 달을 올바르게 선택해 주세요. (아직 오지 않은 달은 마감할 수 없습니다.)');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const ss = getDb_();
+    if (isClosed_(closedMonths_(), ym)) return fail_('STATE', ym + '은(는) 이미 마감되었습니다.');
+    const rows = expRows_(ensureExpSheet_(ss)).filter(function (o) { return o.status !== ST.DEL && expClaimMonth_(o) === ym; });
+    const done = rows.filter(function (o) { return o.status === ST.DONE; });
+    const total = done.reduce(function (a, o) { return a + (Number(o.total) || 0); }, 0);
+    const at = nowStr_();
+    ensureCloseSheet_(ss).appendRow([ym, '마감', me.name, at, String(done.length), String(total), '']);
+    audit_(me.id, '월마감', ym + ' / 승인 ' + done.length + '건 ' + total + '원 / 미승인 ' + (rows.length - done.length) + '건');
+    return { ok: true, closed: closedMonths_(), count: done.length, total: total, pending: rows.length - done.length };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function reopenMonth_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s;
+  if (me.role !== MANAGER_ROLE) return fail_('FORBIDDEN', '현장소장만 마감을 해제할 수 있습니다.');
+  const ym = String(req.ym || '');
+  const reason = cleanText_(req.reason, 200);
+  if (reason.length < 2) return fail_('PARAM', '마감을 해제하는 사유를 적어 주세요.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const ss = getDb_();
+    if (!isClosed_(closedMonths_(), ym)) return fail_('STATE', ym + '은(는) 마감된 달이 아닙니다.');
+    ensureCloseSheet_(ss).appendRow([ym, '해제', me.name, nowStr_(), '', '', reason]);
+    audit_(me.id, '마감해제', ym + ' / ' + reason);
+    return { ok: true, closed: closedMonths_() };
   } finally {
     lock.releaseLock();
   }
