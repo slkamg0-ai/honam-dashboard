@@ -1516,7 +1516,7 @@ function gapjiHtml_(o) {
   const vpCell = hq.state === '확인' ? box('#15803d', '확인', hq.by) : ph(hq.state === '제출' ? '회신대기' : '서명');
   const vpDate = hq.state === '확인' ? gjEsc_(gjMmdd_(hq.at)) : '&nbsp;';
   const h = [];
-  h.push('<html><head><meta charset="utf-8"></head><body style="font-family:\'Malgun Gothic\',\'Nanum Gothic\',\'Noto Sans KR\',sans-serif;color:#0f172a;margin:0;padding:0">');
+  h.push('<html><head><meta charset="utf-8"></head><body style="font-family:\'Malgun Gothic\',\'Nanum Gothic\',\'Noto Sans KR\',sans-serif;color:#0f172a;margin:0;padding:0"><div style="width:690px">');
   h.push('<div style="text-align:center;font-size:12px;font-weight:bold;color:#1e3a8a;margin-bottom:4px">[현장명: 호남고속선 정읍~광주송정 등 28개소 재해예방공사]</div>');
   h.push('<div style="text-align:center;font-size:23px;font-weight:bold;letter-spacing:4px;margin:0 0 18px 0;text-decoration:underline">' + gjEsc_(heading) + '</div>');
   h.push('<table style="width:100%;border-collapse:collapse;margin-bottom:14px"><tr><td style="vertical-align:top;width:34%;padding:0">');
@@ -1542,7 +1542,7 @@ function gapjiHtml_(o) {
   h.push(row(o.kind === '공문' ? '붙 임' : '붙임/첨부', '', gjEsc_(o.attach), 'height:40px'));
   h.push('</table>');
   h.push('<div style="margin-top:26px;text-align:center;font-size:14px;font-weight:bold;letter-spacing:1px">' + gjEsc_((o.kind === '품의' ? '' : '(주)동우건설 ') + '호남고속선 재해예방공사 현장 현장소장 ' + mgrName) + '</div>');
-  h.push('</body></html>');
+  h.push('</div></body></html>');
   return h.join('');
 }
 
