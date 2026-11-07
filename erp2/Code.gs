@@ -76,7 +76,7 @@ function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.6' }; }
+function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.7' }; }
 
 function route_(req) {
   const t0 = Date.now();
@@ -1310,15 +1310,29 @@ const DOC_FIELDS = [['id', 'ID'], ['docNo', '문서번호'], ['kind', '구분'],
   ['due', '회신기한'], ['replied', '회신여부'], ['link', '문서링크'], ['docId', '문서ID'], ['folderId', '폴더ID'], ['pdf', '확정PDF'], ['ref', '참조'],
   ['summary', '본문요지'], ['attach', '붙임'], ['note', '비고'], ['authorId', '작성자ID'], ['author', '작성자'], ['reviewer', '검토자'], ['reviewedAt', '검토일시'],
   ['approver', '승인자'], ['approvedAt', '승인일시'], ['reason', '반려사유'], ['hq', '본사상태'], ['hqBy', '본사처리자'], ['hqAt', '본사처리일시'],
-  ['hqSubmitAt', '본사제출일시'], ['hqNote', '본사메모'], ['created', '작성일시'], ['updated', '수정일시']];
+  ['hqSubmitAt', '본사제출일시'], ['hqNote', '본사메모'], ['created', '작성일시'], ['updated', '수정일시'], ['cat', '문서구분'], ['amount', '집행금액']];
+// 문서구분(갑지의 분류): 품의와 공문에만 있다. 이름만 저장한다.
+const DOC_CATS = { '품의': ['현장품의', '본사품의', '변경품의'], '공문': ['본사문서', '대관공문', '안전점검', '기타'] };
 const DOC_HEADERS = DOC_FIELDS.map(function (f) { return f[1]; });
 
+let docSheetChecked_ = false;
 function ensureDocSheet_(ss) {
   let sh = ss.getSheetByName(SHEET_DOC);
   if (!sh) {
     sh = ss.insertSheet(SHEET_DOC);
     sh.getRange(1, 1, sh.getMaxRows(), DOC_HEADERS.length).setNumberFormat('@');
     sh.getRange(1, 1, 1, DOC_HEADERS.length).setValues([DOC_HEADERS]);
+    docSheetChecked_ = true;
+  } else if (!docSheetChecked_) {
+    // 칸이 늘어난 버전으로 올라오면 머리글과 열을 덧붙인다 (기존 자료는 건드리지 않는다)
+    const have = sh.getLastColumn();
+    if (have < DOC_HEADERS.length) {
+      if (sh.getMaxColumns() < DOC_HEADERS.length) sh.insertColumnsAfter(sh.getMaxColumns(), DOC_HEADERS.length - sh.getMaxColumns());
+      const n = DOC_HEADERS.length - have;
+      sh.getRange(1, have + 1, sh.getMaxRows(), n).setNumberFormat('@');
+      sh.getRange(1, have + 1, 1, n).setValues([DOC_HEADERS.slice(have)]);
+    }
+    docSheetChecked_ = true;
   }
   return sh;
 }
@@ -1356,7 +1370,7 @@ function docPublic_(o) {
     id: o.id, docNo: o.docNo, kind: o.kind, date: o.date, party: o.party, title: o.title, status: o.status, due: o.due, replied: o.replied === 'Y',
     link: o.link, folderUrl: folderUrl_(o.folderId), pdf: o.pdf, ref: o.ref, summary: o.summary, attach: o.attach, note: o.note,
     authorId: o.authorId, author: o.author, reviewer: o.reviewer, reviewedAt: o.reviewedAt, approver: o.approver, approvedAt: o.approvedAt, reason: o.reason,
-    hq: { state: o.hq, by: o.hqBy, at: o.hqAt, submitAt: o.hqSubmitAt, note: o.hqNote }, created: o.created, updated: o.updated
+    hq: { state: o.hq, by: o.hqBy, at: o.hqAt, submitAt: o.hqSubmitAt, note: o.hqNote }, created: o.created, updated: o.updated, cat: o.cat, amount: o.amount
   };
 }
 
@@ -1481,6 +1495,12 @@ function docValidate_(req, kind) {
   v.summary = cleanMulti_(req.summary, 2000);
   v.attach = cleanText_(req.attach, 200);
   v.note = cleanText_(req.note, 200);
+  v.cat = '';
+  if (DOC_CATS[kind]) {
+    v.cat = cleanText_(req.cat, 20);
+    if (v.cat && DOC_CATS[kind].indexOf(v.cat) < 0) return { err: fail_('PARAM', '문서구분을 목록에서 고르세요.') };
+  }
+  v.amount = kind === '품의' ? cleanText_(req.amount, 40) : '';
   v.due = '';
   if (kind !== '품의' && req.due) {
     v.due = String(req.due);
@@ -1522,7 +1542,7 @@ function saveDoc_(req) {
         if (o.status !== DST.DRAFT && o.status !== DST.REJECT) return fail_('STATE', '제출된 문서는 고칠 수 없습니다. 반려된 뒤에 고칠 수 있습니다.');
       }
       const v = chk.v;
-      ['date', 'title', 'party', 'ref', 'summary', 'attach', 'note', 'due'].forEach(function (k) { o[k] = v[k]; });
+      ['date', 'title', 'party', 'ref', 'summary', 'attach', 'note', 'due', 'cat', 'amount'].forEach(function (k) { o[k] = v[k]; });
       docWrite_(sh, o, o._row);
       audit_(me.id, '문서수정', o.docNo);
       return { ok: true, item: docPublic_(o) };
@@ -1534,7 +1554,7 @@ function saveDoc_(req) {
     const o = { id: 'DOC-' + Utilities.getUuid().replace(/-/g, '').slice(0, 12), docNo: nextDocNo_(kind), kind: kind, status: kind === '접수' ? DST.RECV : DST.DRAFT,
       replied: '', link: '', docId: '', folderId: '', pdf: '', reviewer: '', reviewedAt: '', approver: '', approvedAt: '', reason: '',
       hq: '', hqBy: '', hqAt: '', hqSubmitAt: '', hqNote: '', authorId: me.id, author: me.name, created: nowStr_() };
-    ['date', 'title', 'party', 'ref', 'summary', 'attach', 'note', 'due'].forEach(function (k) { o[k] = v[k]; });
+    ['date', 'title', 'party', 'ref', 'summary', 'attach', 'note', 'due', 'cat', 'amount'].forEach(function (k) { o[k] = v[k]; });
     const warn = docMakeFiles_(o);
     docWrite_(sh, o);
     audit_(me.id, '문서작성', o.docNo + ' ' + o.title);
