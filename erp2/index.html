@@ -90,6 +90,9 @@
   textarea { width: 100%; font-size: 15px; padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; font-family: inherit; }
   input[type=date], input[type=number] { width: 100%; font-size: 16px; padding: 11px 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; }
   input[readonly] { background: #f1f5f9; color: #475569; }
+  .st-접수 { background: #e0f2fe; color: #075985; } .st-확정 { background: #dcfce7; color: #166534; } .st-결번 { background: #e2e8f0; color: #475569; text-decoration: line-through; } .st-hq { background: #ede9fe; color: #5b21b6; margin-right: 4px; }
+  .xi .r2 .st { margin-right: 4px; }
+  .kv a { color: #1d4ed8; font-weight: 700; }
   @media (max-width: 520px) { .urow { grid-template-columns: 1fr; } .acts { justify-content: flex-start; } .grid2 { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -146,10 +149,10 @@
     <div id="vHome">
       <div class="panel">
         <h3>현장 ERP v2</h3>
-        <p class="desc">로그인·직원 관리·경비 입력·월 마감·작업일보까지 열렸습니다. 나머지 기능은 순서대로 열립니다.</p>
+        <p class="desc">로그인·직원 관리·경비 입력·월 마감·작업일보·문서(품의·공문·접수)까지 열렸습니다. 나머지 기능은 순서대로 열립니다.</p>
         <div class="tiles">
           <button type="button" class="tile on" id="tileExp">경비 입력<small id="tileExpSub">영수증 등록 · 검토 · 승인</small></button>
-          <div class="tile">전자결재<small>예정</small></div>
+          <button type="button" class="tile on" id="tileDoc">문서<small id="tileDocSub">품의 · 공문 · 접수 · 문서대장</small></button>
           <button type="button" class="tile on" id="tileOps">작업일보<small id="tileOpsSub">출역 · 장비 · 작업내용</small></button>
           <button type="button" class="tile on" id="tileClose">월 마감<small id="tileCloseSub">점검 · 마감 · 본사 제출 엑셀</small></button>
         </div>
@@ -263,6 +266,40 @@
       </div>
     </div>
 
+    <div id="vDoc" class="hide">
+      <div id="dList">
+        <div class="panel">
+          <h3>문서 <button class="sm" id="dBack" style="float:right">돌아가기</button></h3>
+          <div class="chips" id="dFilters"></div>
+          <input type="text" id="dSearch" maxlength="40" autocomplete="off" placeholder="번호 · 제목 · 상대처 · 작성자 검색">
+          <div class="xsum" id="dSum"></div>
+          <div id="dItems"></div>
+          <div class="msg" id="dMsg"></div>
+          <div class="desc" id="dNext"></div>
+          <div class="row-btns"><button type="button" class="pri" id="dNewP" style="margin-top:0">+ 품의</button><button type="button" class="pri" id="dNewG" style="margin-top:0">+ 공문</button><button type="button" class="pri" id="dNewR" style="margin-top:0">+ 접수 등록</button></div>
+        </div>
+      </div>
+      <div id="dDetail" class="hide"></div>
+      <div id="dForm" class="hide">
+        <div class="panel">
+          <h3 id="dFTitle">문서 쓰기</h3>
+          <div class="grid2">
+            <div><label for="dDate">일자</label><input type="date" id="dDate"></div>
+            <div id="dDueWrap"><label for="dDue">회신기한 (있으면)</label><input type="date" id="dDue"></div>
+          </div>
+          <label for="dParty" id="dPartyL">수신</label><input type="text" id="dParty" maxlength="60" autocomplete="off">
+          <label for="dTitle">제목 (건명)</label><input type="text" id="dTitle" maxlength="100" autocomplete="off" placeholder="예: 안전난간 추가 설치의 건">
+          <div id="dRefWrap"><label for="dRef">참조</label><input type="text" id="dRef" maxlength="60" autocomplete="off"></div>
+          <label for="dSummary" id="dSummaryL">본문 요지</label><textarea id="dSummary" rows="4" maxlength="2000"></textarea>
+          <label for="dAttach" id="dAttachL">첨부</label><input type="text" id="dAttach" maxlength="200" autocomplete="off" placeholder="예: 견적서 1부, 실행예산서 엑셀">
+          <label for="dNote">비고</label><input type="text" id="dNote" maxlength="200" autocomplete="off">
+          <div class="row-btns"><button type="button" id="dDraft">임시저장</button><button type="button" class="pri" id="dSubmit" style="margin-top:0">저장하고 제출</button></div>
+          <button type="button" id="dCancel" style="width:100%;margin-top:8px">취소</button>
+          <div class="msg" id="dFMsg"></div>
+        </div>
+      </div>
+    </div>
+
     <div id="vAdmin" class="hide">
       <div class="panel">
         <h3>직원 관리 <button class="sm" id="btnAdminBack" style="float:right">돌아가기</button></h3>
@@ -322,7 +359,7 @@
   }
 
   // ── 다른 파일(expense.js)이 쓰는 연결 지점 ──
-  var VIEWS = ['vHome', 'vAdmin', 'vExp', 'vClose', 'vOps'];
+  var VIEWS = ['vHome', 'vAdmin', 'vExp', 'vClose', 'vOps', 'vDoc'];
   window.ERP2 = {
     $: $, el: function (tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; },
     api: function (action, data, ms) { var d = data || {}; d.token = token; return api(action, d, ms); },
@@ -499,5 +536,6 @@
 <script src="export.js"></script>
 <script src="close.js"></script>
 <script src="ops.js"></script>
+<script src="docs.js"></script>
 </body>
 </html>
