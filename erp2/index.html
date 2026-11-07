@@ -60,6 +60,11 @@
   .xi .r2 { font-size: 12px; color: #64748b; margin-top: 3px; line-height: 1.5; }
   .st { display: inline-block; font-size: 11px; font-weight: 800; padding: 2px 8px; border-radius: 9px; white-space: nowrap; }
   .st-작성중 { background: #f1f5f9; color: #475569; } .st-검토대기 { background: #fef3c7; color: #92400e; } .st-승인대기 { background: #dbeafe; color: #1e40af; }
+  .st-확인대기 { background: #fef3c7; color: #92400e; } .st-확인완료 { background: #dcfce7; color: #166534; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .ohint { font-size: 12.5px; font-weight: 700; color: #1d4ed8; margin: 6px 0; white-space: pre-line; line-height: 1.5; }
+  .ohint.need { color: #b91c1c; }
+  .siteinfo { font-size: 12px; color: #475569; margin: 2px 0 6px; }
   .st-승인 { background: #dcfce7; color: #166534; } .st-반려 { background: #fee2e2; color: #991b1b; } .st-late { background: #ede9fe; color: #5b21b6; margin-right: 4px; }
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 8px 0; }
   .cards > div { background: #f8fafc; border-radius: 10px; padding: 10px 12px; }
@@ -141,11 +146,11 @@
     <div id="vHome">
       <div class="panel">
         <h3>현장 ERP v2</h3>
-        <p class="desc">로그인·직원 관리·경비 입력·월 마감까지 열렸습니다. 나머지 기능은 순서대로 열립니다.</p>
+        <p class="desc">로그인·직원 관리·경비 입력·월 마감·작업일보까지 열렸습니다. 나머지 기능은 순서대로 열립니다.</p>
         <div class="tiles">
           <button type="button" class="tile on" id="tileExp">경비 입력<small id="tileExpSub">영수증 등록 · 검토 · 승인</small></button>
           <div class="tile">전자결재<small>예정</small></div>
-          <div class="tile">작업일보<small>예정</small></div>
+          <button type="button" class="tile on" id="tileOps">작업일보<small id="tileOpsSub">출역 · 장비 · 작업내용</small></button>
           <button type="button" class="tile on" id="tileClose">월 마감<small id="tileCloseSub">점검 · 마감 · 본사 제출 엑셀</small></button>
         </div>
       </div>
@@ -211,6 +216,50 @@
       </div>
     </div>
 
+    <div id="vOps" class="hide">
+      <div id="oList">
+        <div class="panel">
+          <h3>작업일보 <button class="sm" id="oBack" style="float:right">돌아가기</button></h3>
+          <div class="xbar"><button class="sm" id="oPrev">◀</button><input type="month" id="oMonth"><button class="sm" id="oNext">▶</button><button class="sm" id="oThis">이번 달</button></div>
+          <div class="chips" id="oFilters"></div>
+          <div class="xsum" id="oSum"></div>
+          <div id="oMissing"></div>
+          <div id="oItems"></div>
+          <div class="msg" id="oMsg"></div>
+          <button class="pri" id="oNew">+ 작업일보 쓰기</button>
+        </div>
+      </div>
+      <div id="oDetail" class="hide"></div>
+      <div id="oForm" class="hide">
+        <div class="panel">
+          <h3 id="oTitle">작업일보 쓰기</h3>
+          <div class="grid2">
+            <div><label for="oDate">작업일</label><input type="date" id="oDate"></div>
+            <div><label for="oWeather">날씨</label><select id="oWeather"></select></div>
+          </div>
+          <label for="oSite">작업 개소</label><select id="oSite"></select>
+          <div class="siteinfo" id="oSiteInfo"></div>
+          <div class="grid2">
+            <div><label for="oKind">구분</label><select id="oKind"></select></div>
+            <div id="oProgWrap"><label for="oProg">누계 진행률 (%) <small id="oProgHint" style="font-weight:500;color:#64748b"></small></label><input type="text" id="oProg" inputmode="numeric" maxlength="3" autocomplete="off"></div>
+          </div>
+          <div class="ohint" id="oHint"></div>
+          <div id="oReasonWrap" class="hide"><label for="oReason">계획 외 사유 (필수)</label><textarea id="oReason" rows="2" maxlength="200" placeholder="예: 선로차단 일정 변경으로 앞당김 / 우천으로 지연된 6일분 만회 / 감리 지시에 따른 추가 시공"></textarea></div>
+          <label>출역 인원 <small style="font-weight:500;color:#64748b">(합계 <span id="oTotal">-</span>)</small></label>
+          <div class="grid3">
+            <div><label for="oStaff" style="font-weight:600">직원·관리자</label><input type="text" id="oStaff" inputmode="numeric" maxlength="3" autocomplete="off"></div>
+            <div><label for="oWorker" style="font-weight:600">기능공·일용</label><input type="text" id="oWorker" inputmode="numeric" maxlength="3" autocomplete="off"></div>
+            <div><label for="oSafety" style="font-weight:600">열차감시원·신호수</label><input type="text" id="oSafety" inputmode="numeric" maxlength="3" autocomplete="off"></div>
+          </div>
+          <label for="oEquip">투입 장비·반입 자재</label><input type="text" id="oEquip" maxlength="120" autocomplete="off" placeholder="예: 백호우 02W 1대, 덤프 1대 / U형측구 40EA">
+          <label for="oMemo">금일 작업내용·TBM 안전점검</label><textarea id="oMemo" rows="3" maxlength="300" placeholder="예: 산마루측구 터파기 및 사면 방수포 설치 (운행선 인접작업 열차감시원 배치 완료)"></textarea>
+          <div class="row-btns"><button type="button" id="oDraft">임시저장</button><button type="button" class="pri" id="oSubmit" style="margin-top:0">저장하고 제출</button></div>
+          <button type="button" id="oCancel" style="width:100%;margin-top:8px">취소</button>
+          <div class="msg" id="oFMsg"></div>
+        </div>
+      </div>
+    </div>
+
     <div id="vAdmin" class="hide">
       <div class="panel">
         <h3>직원 관리 <button class="sm" id="btnAdminBack" style="float:right">돌아가기</button></h3>
@@ -270,7 +319,7 @@
   }
 
   // ── 다른 파일(expense.js)이 쓰는 연결 지점 ──
-  var VIEWS = ['vHome', 'vAdmin', 'vExp', 'vClose'];
+  var VIEWS = ['vHome', 'vAdmin', 'vExp', 'vClose', 'vOps'];
   window.ERP2 = {
     $: $, el: function (tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; },
     api: function (action, data, ms) { var d = data || {}; d.token = token; return api(action, d, ms); },
@@ -446,5 +495,6 @@
 <script src="expense.js"></script>
 <script src="export.js"></script>
 <script src="close.js"></script>
+<script src="ops.js"></script>
 </body>
 </html>

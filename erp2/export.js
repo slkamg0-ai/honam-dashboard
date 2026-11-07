@@ -1,6 +1,6 @@
 /* 월 마감 점검 + 본사 제출 엑셀(.xlsx) — 외부 라이브러리 없이 직접 만든다.
  * 이전 ERP에서 쓰던 엑셀 모양(지불요청서·경비상세·비목별·개소별·마감점검)을 그대로 옮겼다.
- * 작업일보(투입내역)는 4단계에서 추가한다.
+ * 4단계: 작업일보(확인완료)를 「투입내역」 장으로 넣고, 개소별 작업일수·연인원·진행률과 일보 점검(미확인·빠진 날·계획 밖 작업)을 더했다.
  * 화면 점검 목록과 엑셀이 같은 값을 쓰도록 계산은 buildClose 한 곳에서 한다. */
 (function (root) {
   'use strict';
@@ -18,6 +18,9 @@
     return s ? (s.code + ' · ' + s.route + ' ' + s.location) : ('개소' + no);
   }
   function hasReceipt(e) { return (e.receipts || []).length > 0; }
+  var DOW = ['일', '월', '화', '수', '목', '금', '토'];
+  function dayName(d) { var p = String(d).split('-'); return DOW[new Date(Date.UTC(+p[0], +p[1] - 1, +p[2])).getUTCDay()]; }
+  function mmdd(d) { return String(d).slice(5) + '(' + dayName(d) + ')'; }
 
   /** 한 달치 점검 결과와 엑셀 원본 값.
    * monthItems: 이 달 청구분 전체(삭제 제외, 모든 상태) / cumItems: 착공부터 이 달까지 승인된 경비 */
@@ -45,11 +48,29 @@
     var unkCum = cum.filter(function (e) { return known.indexOf(e.budget) === -1; });
     var overBud = budRows.filter(function (r) { return r.cum > r.budget; });
 
+    // ── 작업일보(4단계): 확인완료만 투입내역에 들어간다 ──
+    var opsAll = opt.opsItems || [];
+    var ops = opsAll.filter(function (o) { return o.status === '확인완료'; }).sort(function (a, b) { return (a.date + ('0' + (a.site || 0)).slice(-2) + a.id) < (b.date + ('0' + (b.site || 0)).slice(-2) + b.id) ? -1 : 1; });
+    var opsPending = opsAll.filter(function (o) { return o.status !== '확인완료'; });
+    var opsTotals = { staff: sum(ops, 'staff'), worker: sum(ops, 'worker'), safety: sum(ops, 'safety'), people: sum(ops, 'people') };
+    var opsDates = {}; ops.forEach(function (o) { opsDates[o.date] = true; });
+    var holidays = {}; (master.holidays || []).forEach(function (h) { holidays[h[0]] = h[1]; });
+    var firstStart = (master.sites || []).reduce(function (a, x) { return x.planStart && (!a || x.planStart < a) ? x.planStart : a; }, '');
+    var missingDays = [], reqDays = 0, lastD = monthEnd(ym) < opt.today ? monthEnd(ym) : opt.today;
+    if (firstStart) for (var dd = 1; dd <= Number(monthEnd(ym).slice(8)); dd++) {
+      var ds = ym + '-' + pad2(dd);
+      if (ds < firstStart || ds > lastD || holidays[ds]) continue;
+      reqDays++; if (!opsDates[ds]) missingDays.push(ds);
+    }
+    var offPlan = ops.filter(function (o) { return o.kind !== '계획' || o.offReason; });
+    var opsBySite = {};
+    ops.forEach(function (o) { var k = Number(o.site) || 0; var r = (opsBySite[k] = opsBySite[k] || { dates: {}, people: 0, pct: null }); if (o.people > 0) r.dates[o.date] = true; r.people += num(o.people); if (o.progress !== null && o.progress !== undefined && (r.pct === null || o.progress > r.pct)) r.pct = o.progress; });
+
     var siteMap = {};
     items.forEach(function (e) { var k = Number(e.site) || 0; (siteMap[k] = siteMap[k] || []).push(e); });
-    var siteRows = (master.sites || []).slice().sort(function (a, b) { return a.no - b.no; }).filter(function (s) { return siteMap[s.no]; })
-      .map(function (s) { return { s: s, supply: sum(siteMap[s.no], 'supply'), cnt: siteMap[s.no].length }; });
-    var common = { supply: sum(siteMap[0] || [], 'supply'), cnt: (siteMap[0] || []).length };
+    var siteRows = (master.sites || []).slice().sort(function (a, b) { return a.no - b.no; }).filter(function (s) { return siteMap[s.no] || opsBySite[s.no]; })
+      .map(function (s) { var o = opsBySite[s.no]; return { s: s, supply: sum(siteMap[s.no] || [], 'supply'), cnt: (siteMap[s.no] || []).length, days: o ? Object.keys(o.dates).length : 0, people: o ? o.people : 0, pct: o ? o.pct : null }; });
+    var common = { supply: sum(siteMap[0] || [], 'supply'), cnt: (siteMap[0] || []).length, days: opsBySite[0] ? Object.keys(opsBySite[0].dates).length : 0, people: opsBySite[0] ? opsBySite[0].people : 0 };
 
     var checks = [];
     var add = function (level, title, detail) { checks.push({ level: level, title: title, detail: detail || '' }); };
@@ -66,12 +87,21 @@
     else if (items.length) add('ok', '승인된 모든 경비에 영수증 사진이 있습니다', '');
     if (unkMonth.length) add('warn', '예산 항목을 알 수 없는 경비 ' + unkMonth.length + '건', '비목별 실행예산 표에서 「미분류」로 잡힙니다.');
     if (overBud.length) add('bad', '실행예산을 넘은 비목 ' + overBud.length + '개', overBud.map(function (r) { return r.label + ' ' + won(r.cum) + ' / ' + won(r.budget); }).join(' · ') + ' (누계, 공급가 기준)');
+    // 작업일보 점검
+    if (opsPending.length) {
+      var ob = {}; opsPending.forEach(function (o) { ob[o.status] = (ob[o.status] || 0) + 1; });
+      add('warn', '확인이 끝나지 않은 작업일보 ' + opsPending.length + '건', Object.keys(ob).map(function (k) { return k + ' ' + ob[k] + '건'; }).join(' · ') + ' — 투입내역에는 확인완료 일보만 들어갑니다.');
+    } else if (opsAll.length) add('ok', '이 달 작업일보가 모두 확인되었습니다', '작업일보 ' + ops.length + '건 점검');
+    if (missingDays.length) add('warn', '확인된 작업일보가 없는 날 ' + missingDays.length + '일', missingDays.slice(0, 12).map(mmdd).join(', ') + (missingDays.length > 12 ? ' 외 ' + (missingDays.length - 12) + '일' : '') + ' — 착공일 이후, 휴무일 제외');
+    else if (reqDays) add('ok', '일보가 필요한 모든 날에 확인된 작업일보가 있습니다', reqDays + '일 점검');
+    if (offPlan.length) add('info', '계획 밖 작업일보 ' + offPlan.length + '건', offPlan.slice(0, 6).map(function (o) { return mmdd(o.date) + ' ' + (Number(o.site) ? siteLabel(master, o.site).split(' · ')[0] : '공통') + '(' + o.kind + (o.offReason ? ': ' + o.offReason : '') + ')'; }).join(', ') + (offPlan.length > 6 ? ' 외 ' + (offPlan.length - 6) + '건' : ''));
     var bad = checks.filter(function (c) { return c.level === 'bad'; }).length;
     var warn = checks.filter(function (c) { return c.level === 'warn'; }).length;
     return {
       ym: ym, first: ym + '-01', last: monthEnd(ym), today: opt.today, manager: opt.manager || '', closed: closed, master: master,
       items: items, pendingItems: pendingItems, late: late, totals: totals, noRec: noRec, budRows: budRows, unkMonth: unkMonth, unkCum: unkCum,
-      siteRows: siteRows, common: common, checks: checks, bad: bad, warn: warn, overBud: overBud
+      siteRows: siteRows, common: common, checks: checks, bad: bad, warn: warn, overBud: overBud,
+      ops: ops, opsPending: opsPending, opsTotals: opsTotals, missingDays: missingDays, reqDays: reqDays, offPlan: offPlan
     };
   }
 
@@ -257,18 +287,36 @@
     br.push([T('※ 실행예산: 호남고속선_실행예산.xlsx 비목별 실행예산(공급가액)을 경비 예산 항목에 맞춰 묶은 값. 간접노무비(상주 인력 급여)는 경비 입력 대상이 아니라 제외. 누계는 착공일부터 이 달 청구분까지 승인된 경비의 합입니다. 당월 집행은 「경비상세」 장 수식입니다.', 'note')]);
     var bimok = { name: '비목별', widths: [24, 16, 16, 16, 16, 12, 18], rows: br };
 
+    // 투입내역 (작업일보 확인완료분)
+    var oN = d.ops.length, oLast = oN + 1;
+    var oHead = ['일보번호', '작업일', '요일', '날씨', '개소번호', '개소', '공종', '구분', '누계진행률(%)', '직원·관리자', '기능공·일용', '열차감시원·신호수', '출역 합계', '투입 장비·반입 자재', '작업내용', '계획 외 사유', '작성자', '확인자', '확인일시'];
+    var oRows = [oHead.map(function (h) { return T(h, 'head'); })];
+    d.ops.forEach(function (o, i) {
+      var site = Number(o.site) || 0, st = (d.master.sites || []).filter(function (x) { return x.no === site; })[0], r = i + 2;
+      oRows.push([T(o.docNo), T(o.date), T(dayName(o.date)), T(o.weather), N(site, 'text'), T(siteLabel(d.master, site)), T(st ? st.work : ''), T(o.kind), (o.progress === null || o.progress === undefined) ? T('') : N(o.progress),
+        N(o.staff), N(o.worker), N(o.safety), F('J' + r + '+K' + r + '+L' + r, o.people), T(o.equip, 'wrap'), T(o.memo, 'wrap'), T(o.offReason || '', 'wrap'), T(o.author), T(o.confirmer || ''), T(o.confirmedAt || '')]);
+    });
+    var ob2 = function () { return T('', 'ttext'); };
+    var osum = function (c, v) { return oN ? F('SUM(' + c + '2:' + c + oLast + ')', v, 'tnum') : N(0, 'tnum'); };
+    oRows.push([T('합계', 'ttext'), ob2(), ob2(), ob2(), ob2(), ob2(), ob2(), ob2(), ob2(), osum('J', d.opsTotals.staff), osum('K', d.opsTotals.worker), osum('L', d.opsTotals.safety), osum('M', d.opsTotals.people), ob2(), ob2(), ob2(), ob2(), ob2(), ob2()]);
+    oRows.push([]);
+    oRows.push([T('※ 작업일보 중 확인완료된 것만 담았습니다(확인대기·작성중·반려 제외). 같은 날 여러 개소의 일보는 각각 한 줄이며, 출역 합계는 직원·기능공·열차감시원의 합입니다.', 'note')]);
+    var tuip = { name: '투입내역', widths: [17, 11, 6, 10, 8, 28, 22, 10, 10, 10, 10, 12, 10, 26, 40, 30, 10, 10, 19], freeze: 1, rows: oRows };
+    var oR = function (col) { return '투입내역!$' + col + '$2:$' + col + '$' + Math.max(oLast, 2); };
+
     // 개소별
-    var sr = [[T('개소별 집행 현황 (' + monthTxt + ')', 'title')], [], ['개소', '공종', '당월 경비(공급가)', '경비 건수'].map(function (h) { return T(h, 'head'); })];
+    var sr = [[T('개소별 집행·투입 현황 (' + monthTxt + ')', 'title')], [], ['개소', '공종', '당월 경비(공급가)', '경비 건수', '작업일수', '출역 연인원', '월말 누계진행률(%)'].map(function (h) { return T(h, 'head'); })];
     var sStart = sr.length + 1;
     d.siteRows.forEach(function (r) {
-      sr.push([T(r.s.code + ' ' + r.s.route + ' ' + r.s.location), T(r.s.work), F('SUMIFS(' + rng('J') + ',' + rng('D') + ',' + r.s.no + ')', r.supply), F('COUNTIFS(' + rng('D') + ',' + r.s.no + ')', r.cnt)]);
+      sr.push([T(r.s.code + ' ' + r.s.route + ' ' + r.s.location), T(r.s.work), F('SUMIFS(' + rng('J') + ',' + rng('D') + ',' + r.s.no + ')', r.supply), F('COUNTIFS(' + rng('D') + ',' + r.s.no + ')', r.cnt),
+        N(r.days), F('SUMIFS(' + oR('M') + ',' + oR('E') + ',' + r.s.no + ')', r.people), r.pct === null ? T('') : N(r.pct)]);
     });
-    sr.push([T('공통 (개소 없음)'), T(''), F('SUMIFS(' + rng('J') + ',' + rng('D') + ',0)', d.common.supply), F('COUNTIFS(' + rng('D') + ',0)', d.common.cnt)]);
+    sr.push([T('공통 (개소 없음)'), T(''), F('SUMIFS(' + rng('J') + ',' + rng('D') + ',0)', d.common.supply), F('COUNTIFS(' + rng('D') + ',0)', d.common.cnt), N(d.common.days), F('SUMIFS(' + oR('M') + ',' + oR('E') + ',0)', d.common.people), T('')]);
     var sLast = sr.length;
-    sr.push([T('합계', 'ttext'), T('', 'ttext'), F('SUM(C' + sStart + ':C' + sLast + ')', d.totals.supply, 'tnum'), F('SUM(D' + sStart + ':D' + sLast + ')', n, 'tnum')]);
+    sr.push([T('합계', 'ttext'), T('', 'ttext'), F('SUM(C' + sStart + ':C' + sLast + ')', d.totals.supply, 'tnum'), F('SUM(D' + sStart + ':D' + sLast + ')', n, 'tnum'), T('', 'ttext'), F('SUM(F' + sStart + ':F' + sLast + ')', d.opsTotals.people, 'tnum'), T('', 'ttext')]);
     sr.push([]);
-    sr.push([T('※ 경비 합계는 「지불요청서」 합계금액이 아니라 공급가액입니다. 개소 합계 + 공통 = 경비상세 공급가 합계. 작업일수·출역·진행률은 작업일보 연결(4단계) 뒤에 추가됩니다.', 'note')]);
-    var gaeso = { name: '개소별', widths: [40, 28, 18, 12], rows: sr };
+    sr.push([T('※ 경비 합계는 「지불요청서」 합계금액이 아니라 공급가액입니다. 개소 합계 + 공통 = 경비상세 공급가 합계. 작업일수는 출역이 있는 날의 수(같은 날 일보가 여러 건이어도 1일), 출역 연인원은 「투입내역」의 출역 합계, 진행률은 이 달 확인완료 일보 중 가장 높은 누계 진행률(이 달 일보가 없으면 빈칸)입니다.', 'note')]);
+    var gaeso = { name: '개소별', widths: [40, 28, 18, 12, 10, 14, 18], rows: sr };
 
     // 마감점검
     var lv = { ok: '정상', warn: '보완', bad: '문제', info: '참고', mute: '참고' };
@@ -277,12 +325,12 @@
       ['구분', '점검 항목', '내용'].map(function (h) { return T(h, 'head'); })];
     d.checks.forEach(function (c) { cr.push([T(lv[c.level], c.level === 'bad' || c.level === 'warn' ? 'warn' : 'text'), T(c.title, 'wrap'), T(c.detail || '', 'wrap')]); });
     var jum = { name: '마감점검', widths: [8, 44, 80], rows: cr };
-    return [jibji, detail, bimok, gaeso, jum];
+    return [jibji, detail, bimok, gaeso, tuip, jum];
   }
 
   function makeWorkbook(d, now) { return buildXlsx(buildSheets(d), now); }
   function fileName(d) { return 'HN28_월마감_' + d.ym + (d.closed ? '' : '_마감전') + '_' + d.today.replace(/-/g, '') + '.xlsx'; }
 
-  var api = { buildClose: buildClose, buildSheets: buildSheets, makeWorkbook: makeWorkbook, fileName: fileName, won: won, monthEnd: monthEnd, siteLabel: siteLabel, _zip: zip, _crc32: crc32 };
+  var api = { buildClose: buildClose, buildSheets: buildSheets, makeWorkbook: makeWorkbook, fileName: fileName, won: won, monthEnd: monthEnd, siteLabel: siteLabel, dayName: dayName, _zip: zip, _crc32: crc32 };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.HNExport = api;
 })(typeof window !== 'undefined' ? window : globalThis);

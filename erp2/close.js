@@ -43,12 +43,13 @@
   function load() {
     var my = ++seq, ym = month;
     data = null; setMsg('불러오는 중…', true); ['cExport', 'cClose', 'cReopen'].forEach(function (b) { $(b).disabled = true; });
-    Promise.all([E.api('listExpenses', { month: ym }, 25000), E.api('listExpenses', { upTo: ym }, 25000)]).then(function (rs) {
+    Promise.all([E.api('listExpenses', { month: ym }, 25000), E.api('listExpenses', { upTo: ym }, 25000), E.api('listOps', { month: ym }, 25000)]).then(function (rs) {
       if (my !== seq) return; // 그 사이에 다른 달로 넘어갔다
-      if (E.authLost(rs[0]) || E.authLost(rs[1])) return;
-      if (!rs[0].ok || !rs[1].ok) { setMsg((rs[0].ok ? rs[1] : rs[0]).message || '불러오지 못했습니다.'); render(); return; }
+      if (E.authLost(rs[0]) || E.authLost(rs[1]) || E.authLost(rs[2])) return;
+      var bad = [rs[0], rs[1], rs[2]].filter(function (r) { return !r.ok; })[0];
+      if (bad) { setMsg(bad.message || '불러오지 못했습니다.'); render(); return; }
       closedList = rs[0].closed || closedList;
-      data = X.buildClose({ ym: ym, master: M, monthItems: rs[0].items, cumItems: rs[1].items, closed: closedList.filter(function (c) { return c.ym === ym; })[0] || null, today: M.today, manager: M.manager || '' });
+      data = X.buildClose({ ym: ym, master: M, monthItems: rs[0].items, cumItems: rs[1].items, opsItems: rs[2].items, closed: closedList.filter(function (c) { return c.ym === ym; })[0] || null, today: M.today, manager: M.manager || '' });
       setMsg(note, !!note); note = ''; render();
     });
   }
@@ -68,6 +69,7 @@
     sum.appendChild(card('점검 결과', verdict[0], d.ym.replace('-', '년 ') + '월 · 문제 ' + d.bad + ' · 보완 ' + d.warn, verdict[1]));
     sum.appendChild(card('승인된 경비 (공급가)', X.won(d.totals.supply), d.items.length + '건 · 부가세 ' + X.won(d.totals.vat)));
     sum.appendChild(card('지불요청 합계', X.won(d.totals.total), '공급가 + 부가세'));
+    sum.appendChild(card('작업일보 (확인완료)', d.ops.length + '건', '출역 연인원 ' + d.opsTotals.people + '명' + (d.opsPending.length ? ' · 확인 전 ' + d.opsPending.length + '건' : '')));
     sum.appendChild(card('승인 전 경비', d.pendingItems.length + '건', d.pendingItems.length ? '엑셀에 들어가지 않음' : '모두 승인됨'));
     d.checks.forEach(function (c) {
       var k = el('div', 'ck k-' + (c.level === 'mute' ? 'info' : c.level)); k.appendChild(el('div', 't', c.title)); if (c.detail) k.appendChild(el('div', 'd', c.detail)); box.appendChild(k);
