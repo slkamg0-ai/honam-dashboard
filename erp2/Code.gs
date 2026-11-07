@@ -41,7 +41,7 @@ function setup() {
   const ss = getDb_();
   const sh = ensureUsersSheet_(ss);
   ensureSheet_(ss, SHEET_AUDIT, ['시각', '로그인ID', '동작', '결과']);
-  ensureExpSheet_(ss); ensureSheet_(ss, SHEET_SEQ, ['키', '마지막번호']); ensureCloseSheet_(ss); ensureOpsSheet_(ss); ensureHqSheet_(ss);
+  ensureExpSheet_(ss); ensureSheet_(ss, SHEET_SEQ, ['키', '마지막번호']); ensureCloseSheet_(ss); ensureOpsSheet_(ss); ensureHqSheet_(ss); ensureDocSheet_(ss);
   receiptRoot_(); // 영수증 폴더를 만들면서 드라이브 권한 승인을 받는다
   const rows = readUsers_(sh);
   const made = [];
@@ -51,6 +51,7 @@ function setup() {
     appendUser_(sh, s.id, s.name, s.role, temp);
     made.push(s.id + ' (' + s.role + ') 임시 PIN: ' + temp);
   });
+  seedDocs_(); // 직원이 만들어진 뒤에 한 번만(기존 문서대장 품의 3건)
   Logger.log('DB: ' + ss.getUrl());
   Logger.log('영수증 폴더: ' + receiptRoot_().getUrl());
   Logger.log(made.length ? '새로 만든 직원 ' + made.length + '명\n' + made.join('\n') : '새로 만든 직원 없음(이미 모두 있음)');
@@ -75,7 +76,7 @@ function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.5' }; }
+function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.6' }; }
 
 function route_(req) {
   const t0 = Date.now();
@@ -105,6 +106,15 @@ function route_(req) {
       case 'submitOps': out = submitOps_(req); break;
       case 'confirmOps': out = confirmOps_(req); break;
       case 'deleteOps': out = deleteOps_(req); break;
+      case 'listDocs': out = listDocs_(req); break;
+      case 'saveDoc': out = saveDoc_(req); break;
+      case 'submitDoc': out = submitDoc_(req); break;
+      case 'reviewDoc': out = reviewDoc_(req); break;
+      case 'approveDoc': out = approveDoc_(req); break;
+      case 'voidDoc': out = voidDoc_(req); break;
+      case 'replyDoc': out = replyDoc_(req); break;
+      case 'linkDoc': out = linkDoc_(req); break;
+      case 'hqDoc': out = hqDoc_(req); break;
       default: out = fail_('UNKNOWN_ACTION', '알 수 없는 요청입니다.');
     }
   } catch (err) {
@@ -1287,4 +1297,424 @@ function getReceipt_(req) {
   let blob;
   try { blob = DriveApp.getFileById(r.fid).getBlob(); } catch (e) { return fail_('NOT_FOUND', '영수증 파일을 찾을 수 없습니다.'); }
   return { ok: true, name: r.name, mime: blob.getContentType(), data: Utilities.base64Encode(blob.getBytes()) };
+}
+
+// ───────────────────────────── 문서(품의·공문·접수) ─────────────────────────────
+const SHEET_DOC = '문서';
+const DOC_KINDS = ['품의', '공문', '접수'];
+const DST = { DRAFT: '작성중', REVIEW: '검토대기', APPROVAL: '승인대기', DONE: '확정', REJECT: '반려', VOID: '결번', RECV: '접수' };
+const DOC_SEND_ROOT = '1TBav2JZBLtP5vNk5ykiQPsUO3j2FSDI0'; // 발신 폴더
+const DOC_RECV_ROOT = '18_1g88ZsoicYAQSHGlUY079loV6XGRPp'; // 수신 폴더
+const DOC_TEMPLATE = { '품의': '1tVgu9H9z9f1hNVgyFr0lDNQw1H4L_ZmZBz04e3hlpfM', '공문': '1SmleUL-mt_QXACyVUa7hRrC53gkHDiQWw2KK9vkgp8Y' };
+const DOC_FIELDS = [['id', 'ID'], ['docNo', '문서번호'], ['kind', '구분'], ['date', '일자'], ['party', '수신·발신처'], ['title', '제목'], ['status', '상태'],
+  ['due', '회신기한'], ['replied', '회신여부'], ['link', '문서링크'], ['docId', '문서ID'], ['folderId', '폴더ID'], ['pdf', '확정PDF'], ['ref', '참조'],
+  ['summary', '본문요지'], ['attach', '붙임'], ['note', '비고'], ['authorId', '작성자ID'], ['author', '작성자'], ['reviewer', '검토자'], ['reviewedAt', '검토일시'],
+  ['approver', '승인자'], ['approvedAt', '승인일시'], ['reason', '반려사유'], ['hq', '본사상태'], ['hqBy', '본사처리자'], ['hqAt', '본사처리일시'],
+  ['hqSubmitAt', '본사제출일시'], ['hqNote', '본사메모'], ['created', '작성일시'], ['updated', '수정일시']];
+const DOC_HEADERS = DOC_FIELDS.map(function (f) { return f[1]; });
+
+function ensureDocSheet_(ss) {
+  let sh = ss.getSheetByName(SHEET_DOC);
+  if (!sh) {
+    sh = ss.insertSheet(SHEET_DOC);
+    sh.getRange(1, 1, sh.getMaxRows(), DOC_HEADERS.length).setNumberFormat('@');
+    sh.getRange(1, 1, 1, DOC_HEADERS.length).setValues([DOC_HEADERS]);
+  }
+  return sh;
+}
+
+function docRows_(sh) {
+  const last = sh.getLastRow();
+  if (last < 2) return [];
+  return sh.getRange(2, 1, last - 1, DOC_HEADERS.length).getValues().map(function (r, i) {
+    const o = { _row: i + 2 };
+    DOC_FIELDS.forEach(function (f, k) { o[f[0]] = r[k] === null || r[k] === undefined ? '' : String(r[k]); });
+    return o;
+  });
+}
+
+function docWrite_(sh, o, rowNo) {
+  o.updated = nowStr_();
+  const arr = DOC_FIELDS.map(function (f) { return o[f[0]] === undefined || o[f[0]] === null ? '' : String(o[f[0]]); });
+  const row = rowNo || (sh.getLastRow() + 1);
+  sh.getRange(row, 1, 1, DOC_HEADERS.length).setNumberFormat('@');
+  sh.getRange(row, 1, 1, DOC_HEADERS.length).setValues([arr]);
+  o._row = row;
+}
+
+function docFind_(sh, id) {
+  const rows = docRows_(sh);
+  for (let i = 0; i < rows.length; i++) if (rows[i].id === id) return rows[i];
+  return null;
+}
+
+function docUrl_(id) { return id ? 'https://docs.google.com/document/d/' + id + '/edit' : ''; }
+function folderUrl_(id) { return id ? 'https://drive.google.com/drive/folders/' + id : ''; }
+
+function docPublic_(o) {
+  return {
+    id: o.id, docNo: o.docNo, kind: o.kind, date: o.date, party: o.party, title: o.title, status: o.status, due: o.due, replied: o.replied === 'Y',
+    link: o.link, folderUrl: folderUrl_(o.folderId), pdf: o.pdf, ref: o.ref, summary: o.summary, attach: o.attach, note: o.note,
+    authorId: o.authorId, author: o.author, reviewer: o.reviewer, reviewedAt: o.reviewedAt, approver: o.approver, approvedAt: o.approvedAt, reason: o.reason,
+    hq: { state: o.hq, by: o.hqBy, at: o.hqAt, submitAt: o.hqSubmitAt, note: o.hqNote }, created: o.created, updated: o.updated
+  };
+}
+
+function cleanMulti_(v, max) { return String(v === undefined || v === null ? '' : v).replace(/\r/g, '').replace(/[\t ]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim().slice(0, max); }
+
+/** 읽기만 한다(번호를 올리지 않는다). */
+function peekSeq_(key) {
+  const sh = ensureSheet_(getDb_(), SHEET_SEQ, ['키', '마지막번호']);
+  const last = sh.getLastRow();
+  if (last < 2) return 0;
+  const v = sh.getRange(2, 1, last - 1, 2).getValues();
+  let n = 0;
+  for (let i = 0; i < v.length; i++) if (String(v[i][0]) === key) n = Number(v[i][1]) || 0;
+  return n;
+}
+
+/** 번호 일련이 n보다 작으면 n으로 올린다(이미 쓴 번호를 이어받을 때). */
+function seqAtLeast_(key, n) {
+  const sh = ensureSheet_(getDb_(), SHEET_SEQ, ['키', '마지막번호']);
+  const last = sh.getLastRow();
+  if (last >= 2) {
+    const v = sh.getRange(2, 1, last - 1, 2).getValues();
+    for (let i = 0; i < v.length; i++) if (String(v[i][0]) === key) {
+      if ((Number(v[i][1]) || 0) < n) sh.getRange(i + 2, 2).setValues([[n]]);
+      return;
+    }
+  }
+  sh.appendRow([key, n]);
+}
+
+function managerUser_() {
+  const rows = readUsers_(ensureUsersSheet_(getDb_()));
+  for (let i = 0; i < rows.length; i++) if (rows[i][COL.role] === MANAGER_ROLE && rows[i][COL.active] === 'Y') return { id: String(rows[i][COL.id]), name: String(rows[i][COL.name]) };
+  return { id: '', name: '' };
+}
+
+/** 문서대장에 이미 올라 있던 품의 3건을 한 번만 옮겨 담는다. */
+function seedDocs_() {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('DOCS_SEEDED')) return;
+  const sh = ensureDocSheet_(getDb_());
+  const m = managerUser_();
+  const at = nowStr_();
+  const base = function (n, d, party, title, status, docId, folderId, note) {
+    return { id: 'DOC-SEED-' + n, docNo: '호남-품의-2026-' + pad_(n, 3), kind: '품의', date: d, party: party, title: title, status: status, due: '', replied: '',
+      link: docUrl_(docId), docId: docId, folderId: folderId, pdf: '', ref: '', summary: '', attach: '', note: note, authorId: m.id, author: m.name, reviewer: '', reviewedAt: '',
+      approver: '', approvedAt: '', reason: '', hq: '', hqBy: '', hqAt: '', hqSubmitAt: '', hqNote: '', created: at, updated: at };
+  };
+  const a = base(1, '2026-11-02', '(본사)', '석면조사 용역 계약 체결의 건 (27번 전라선 109k310)', DST.DONE, '1yyWu81WTCLxa1udnodflazbym9wcU1mulYGOlG-SONE', '1Zv5yz-9gTTBqzWbhdl00asyHUR18W--L', '기존 문서대장 「결재중」 → 확정 + 본사 제출로 옮김. 품의서에 문서번호 미기재, 확정 시 기재');
+  a.approver = m.name; a.approvedAt = '2026-11-02'; a.hq = '제출'; a.hqBy = m.name; a.hqAt = '2026-11-02'; a.hqSubmitAt = '2026-11-02';
+  const b = base(2, '2026-11-03', '회장', '실행예산 승인의 건', DST.DRAFT, '1zqQQeUmS7PXHSCJ5vxdST0mgAJ1kVLK2PzJDVcmf5qE', '1A-4fdB-SEyspPu7WoXrrS51BhNpmfR87', '첨부: 실행예산서 엑셀(02_내역·원가)');
+  const c = base(3, '2026-11-04', '', '스마트안전장비 구매', DST.DRAFT, '1FUCJnkhX6QulokF7fi06jlZSVFEKprgq_IPG_b_pw44', '1ybfHANMBvJ_Y8AR_1VoT-FN3i_5k0clJ', '폴더 자동 등록');
+  [a, b, c].forEach(function (o) { docWrite_(sh, o); });
+  seqAtLeast_('DOC:품의:2026', 3);
+  props.setProperty('DOCS_SEEDED', 'Y');
+}
+
+function safeName_(t) { return String(t || '').replace(/[\\\/:*?"<>|#%]+/g, ' ').replace(/\s{2,}/g, ' ').trim().slice(0, 40); }
+
+function ymdDots_(d) { return d.slice(0, 4) + '. ' + d.slice(5, 7) + '. ' + d.slice(8, 10) + '.'; }
+
+/** 발신/수신 폴더 아래에 연-월 폴더와 번호_제목 폴더를 만들고, 품의·공문은 서식을 복사해 자리표시자를 채운다. 실패해도 번호는 남기고 warn 만 돌려준다. */
+function docMakeFiles_(o) {
+  const warn = [];
+  let folder = null, name = o.docNo + '_' + safeName_(o.title);
+  try {
+    const root = DriveApp.getFolderById(o.kind === '접수' ? DOC_RECV_ROOT : DOC_SEND_ROOT);
+    const ym = o.date.slice(0, 7);
+    const it = root.getFoldersByName(ym);
+    const ymF = it.hasNext() ? it.next() : root.createFolder(ym);
+    folder = ymF.createFolder(name);
+    o.folderId = folder.getId();
+  } catch (e) { warn.push('드라이브 폴더를 만들지 못했습니다.'); }
+  if (folder && o.kind !== '접수') {
+    try {
+      const copy = DriveApp.getFileById(DOC_TEMPLATE[o.kind]).makeCopy(name, folder);
+      o.docId = copy.getId(); o.link = docUrl_(o.docId);
+    } catch (e) { warn.push('서식을 복사하지 못했습니다.'); }
+    if (o.docId) {
+      let filled = false;
+      try { filled = docFill_(o); } catch (e) { filled = false; }
+      if (!filled) warn.push('문서 본문 자동 채움은 권한(구글 문서 편집)이 없어 건너뛰었습니다. 문서를 열어 {{ }} 칸을 직접 채워 주세요.');
+    }
+  }
+  return warn;
+}
+
+/** 서식의 {{자리표시자}}를 채운다. 문서 편집 권한이 없으면 false. */
+function docFill_(o) {
+  if (typeof DocumentApp === 'undefined') return false;
+  const map = o.kind === '품의'
+    ? { '부제': '', '승인직위': '회 장', '문서번호': o.docNo, '기안일자': ymdDots_(o.date), '수신': o.party || '회장', '참조': o.ref, '건명': o.title, '본문': o.summary, '첨부': o.attach }
+    : { '문서번호': o.docNo, '시행일자': ymdDots_(o.date), '수신': o.party, '참조': o.ref, '제목': o.title, '본문': o.summary, '붙임': o.attach };
+  const doc = DocumentApp.openById(o.docId);
+  const body = doc.getBody();
+  Object.keys(map).forEach(function (k) { body.replaceText('\\{\\{' + k + '\\}\\}', String(map[k] || '').replace(/\$/g, '$$$$')); });
+  doc.saveAndClose();
+  return true;
+}
+
+/** 확정되면 문서를 PDF 로 같은 폴더에 남긴다. 실패하면 빈 값. */
+function docMakePdf_(o) {
+  if (!o.docId || !o.folderId) return '';
+  try {
+    const blob = DriveApp.getFileById(o.docId).getAs('application/pdf');
+    blob.setName(o.docNo + '_' + safeName_(o.title) + '_확정.pdf');
+    const f = DriveApp.getFolderById(o.folderId).createFile(blob);
+    return 'https://drive.google.com/file/d/' + f.getId() + '/view';
+  } catch (e) { return ''; }
+}
+
+function docValidate_(req, kind) {
+  const v = {};
+  v.date = String(req.date || nowStr_().slice(0, 10));
+  if (!validDate_(v.date)) return { err: fail_('PARAM', '일자를 확인해 주세요.') };
+  v.title = cleanText_(req.title, 100);
+  if (v.title.length < 2) return { err: fail_('PARAM', '제목(건명)을 적어 주세요.') };
+  v.party = cleanText_(req.party, 60);
+  if (kind === '접수' && !v.party) return { err: fail_('PARAM', '보낸 곳(발신처)을 적어 주세요.') };
+  if (kind === '공문' && !v.party) return { err: fail_('PARAM', '수신처를 적어 주세요.') };
+  v.ref = cleanText_(req.ref, 60);
+  v.summary = cleanMulti_(req.summary, 2000);
+  v.attach = cleanText_(req.attach, 200);
+  v.note = cleanText_(req.note, 200);
+  v.due = '';
+  if (kind !== '품의' && req.due) {
+    v.due = String(req.due);
+    if (!validDate_(v.due)) return { err: fail_('PARAM', '회신기한 날짜를 확인해 주세요.') };
+    if (v.due < v.date) return { err: fail_('PARAM', '회신기한이 일자보다 앞설 수 없습니다.') };
+  }
+  return { v: v };
+}
+
+function docSeqHint_() {
+  const y = nowStr_().slice(0, 4), out = {};
+  DOC_KINDS.forEach(function (k) { out[k] = '호남-' + k + '-' + y + '-' + pad_(peekSeq_('DOC:' + k + ':' + y) + 1, 3); });
+  return out;
+}
+
+function listDocs_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const rows = docRows_(ensureDocSheet_(getDb_()));
+  rows.sort(function (a, b) { return a.docNo < b.docNo ? 1 : a.docNo > b.docNo ? -1 : 0; });
+  return { ok: true, items: rows.map(docPublic_), next: docSeqHint_(), today: nowStr_().slice(0, 10) };
+}
+
+function saveDoc_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const sh = ensureDocSheet_(getDb_());
+    if (req.id) {
+      const o = docFind_(sh, String(req.id));
+      if (!o) return fail_('NOT_FOUND', '없는 문서입니다.');
+      const chk = docValidate_(req, o.kind); if (chk.err) return chk.err;
+      const mgr = me.role === MANAGER_ROLE || me.role === '공무';
+      if (o.status === DST.VOID) return fail_('STATE', '결번 처리된 문서는 고칠 수 없습니다.');
+      if (o.kind === '접수') { if (o.authorId !== me.id && !mgr) return fail_('FORBIDDEN', '접수한 사람 또는 공무·현장소장만 고칠 수 있습니다.'); }
+      else {
+        if (o.authorId !== me.id) return fail_('FORBIDDEN', '본인이 쓴 문서만 고칠 수 있습니다.');
+        if (o.status !== DST.DRAFT && o.status !== DST.REJECT) return fail_('STATE', '제출된 문서는 고칠 수 없습니다. 반려된 뒤에 고칠 수 있습니다.');
+      }
+      const v = chk.v;
+      ['date', 'title', 'party', 'ref', 'summary', 'attach', 'note', 'due'].forEach(function (k) { o[k] = v[k]; });
+      docWrite_(sh, o, o._row);
+      audit_(me.id, '문서수정', o.docNo);
+      return { ok: true, item: docPublic_(o) };
+    }
+    const kind = String(req.kind || '');
+    if (DOC_KINDS.indexOf(kind) < 0) return fail_('PARAM', '문서 구분(품의·공문·접수)을 고르세요.');
+    const chk = docValidate_(req, kind); if (chk.err) return chk.err;
+    const v = chk.v;
+    const o = { id: 'DOC-' + Utilities.getUuid().replace(/-/g, '').slice(0, 12), docNo: nextDocNo_(kind), kind: kind, status: kind === '접수' ? DST.RECV : DST.DRAFT,
+      replied: '', link: '', docId: '', folderId: '', pdf: '', reviewer: '', reviewedAt: '', approver: '', approvedAt: '', reason: '',
+      hq: '', hqBy: '', hqAt: '', hqSubmitAt: '', hqNote: '', authorId: me.id, author: me.name, created: nowStr_() };
+    ['date', 'title', 'party', 'ref', 'summary', 'attach', 'note', 'due'].forEach(function (k) { o[k] = v[k]; });
+    const warn = docMakeFiles_(o);
+    docWrite_(sh, o);
+    audit_(me.id, '문서작성', o.docNo + ' ' + o.title);
+    return { ok: true, item: docPublic_(o), warn: warn };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function submitDoc_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const sh = ensureDocSheet_(getDb_());
+    const o = docFind_(sh, String(req.id || ''));
+    if (!o) return fail_('NOT_FOUND', '없는 문서입니다.');
+    if (o.kind === '접수') return fail_('STATE', '받은 문서는 결재가 없습니다.');
+    if (o.authorId !== me.id) return fail_('FORBIDDEN', '본인이 쓴 문서만 제출할 수 있습니다.');
+    if (o.status !== DST.DRAFT && o.status !== DST.REJECT) return fail_('STATE', '이미 제출된 문서입니다.');
+    o.reason = ''; o.reviewer = ''; o.reviewedAt = ''; o.approver = ''; o.approvedAt = '';
+    if (me.role === MANAGER_ROLE) { o.status = DST.DONE; o.approver = me.name; o.approvedAt = nowStr_(); o.pdf = docMakePdf_(o); } // 현장소장이 쓴 문서는 제출이 곧 확정
+    else o.status = me.role === '공무' ? DST.APPROVAL : DST.REVIEW; // 공무가 쓴 문서는 본인이 검토할 수 없으므로 검토 단계를 건너뛴다
+    docWrite_(sh, o, o._row);
+    audit_(me.id, '문서제출', o.docNo + ' → ' + o.status);
+    return { ok: true, item: docPublic_(o) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function reviewDoc_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s;
+  if (me.role !== '공무' && me.role !== MANAGER_ROLE) return fail_('FORBIDDEN', '공무 또는 현장소장만 검토할 수 있습니다.');
+  const reason = cleanText_(req.reason, 200);
+  const ok = req.decision === 'ok';
+  if (!ok && reason.length < 2) return fail_('PARAM', '반려 사유를 적어 주세요.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const sh = ensureDocSheet_(getDb_());
+    const o = docFind_(sh, String(req.id || ''));
+    if (!o) return fail_('NOT_FOUND', '없는 문서입니다.');
+    if (o.status !== DST.REVIEW) return fail_('STATE', '검토 대기 중인 문서가 아닙니다.');
+    if (o.authorId === me.id) return fail_('SELF', '본인이 쓴 문서는 본인이 검토할 수 없습니다.');
+    o.reviewer = me.name; o.reviewedAt = nowStr_();
+    if (ok) { o.status = DST.APPROVAL; o.reason = ''; } else { o.status = DST.REJECT; o.reason = reason; }
+    docWrite_(sh, o, o._row);
+    audit_(me.id, ok ? '문서검토' : '문서반려(검토)', o.docNo);
+    return { ok: true, item: docPublic_(o) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function approveDoc_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s;
+  if (me.role !== MANAGER_ROLE) return fail_('FORBIDDEN', '현장소장만 승인할 수 있습니다.');
+  const reason = cleanText_(req.reason, 200);
+  const ok = req.decision === 'ok';
+  if (!ok && reason.length < 2) return fail_('PARAM', '반려 사유를 적어 주세요.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const sh = ensureDocSheet_(getDb_());
+    const o = docFind_(sh, String(req.id || ''));
+    if (!o) return fail_('NOT_FOUND', '없는 문서입니다.');
+    if (o.status !== DST.APPROVAL) return fail_('STATE', '승인 대기 중인 문서가 아닙니다.');
+    o.approver = me.name; o.approvedAt = nowStr_();
+    if (ok) { o.status = DST.DONE; o.reason = ''; o.pdf = docMakePdf_(o); } else { o.status = DST.REJECT; o.reason = reason; }
+    docWrite_(sh, o, o._row);
+    audit_(me.id, ok ? '문서확정' : '문서반려(승인)', o.docNo);
+    return { ok: true, item: docPublic_(o) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** 쓰지 않게 된 번호는 지우지 않고 결번으로 남긴다. 확정된 문서는 결번으로 돌릴 수 없다. */
+function voidDoc_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s;
+  const reason = cleanText_(req.reason, 200);
+  if (reason.length < 2) return fail_('PARAM', '결번 사유를 적어 주세요.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const sh = ensureDocSheet_(getDb_());
+    const o = docFind_(sh, String(req.id || ''));
+    if (!o) return fail_('NOT_FOUND', '없는 문서입니다.');
+    if (o.authorId !== me.id && me.role !== MANAGER_ROLE) return fail_('FORBIDDEN', '쓴 사람 또는 현장소장만 결번 처리할 수 있습니다.');
+    if (o.status === DST.VOID) return fail_('STATE', '이미 결번입니다.');
+    if (o.status === DST.DONE) return fail_('STATE', '확정된 문서는 결번 처리할 수 없습니다.');
+    if (o.status === DST.REVIEW || o.status === DST.APPROVAL) return fail_('STATE', '결재 중인 문서입니다. 반려된 뒤에 결번 처리할 수 있습니다.');
+    o.status = DST.VOID; o.reason = reason;
+    docWrite_(sh, o, o._row);
+    audit_(me.id, '문서결번', o.docNo + ' / ' + reason);
+    return { ok: true, item: docPublic_(o) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** 받은 문서·보낸 공문의 회신 여부 표시. */
+function replyDoc_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const sh = ensureDocSheet_(getDb_());
+    const o = docFind_(sh, String(req.id || ''));
+    if (!o) return fail_('NOT_FOUND', '없는 문서입니다.');
+    if (o.kind === '품의') return fail_('STATE', '품의는 회신 표시가 없습니다.');
+    if (o.status !== DST.RECV && o.status !== DST.DONE) return fail_('STATE', '접수했거나 확정된 문서만 회신 표시를 할 수 있습니다.');
+    o.replied = req.replied ? 'Y' : '';
+    docWrite_(sh, o, o._row);
+    audit_(me.id, o.replied ? '문서회신' : '문서회신취소', o.docNo);
+    return { ok: true, item: docPublic_(o) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** 문서 링크(구글 문서·드라이브)를 직접 붙인다. 쓴 사람 또는 공무·현장소장. */
+function linkDoc_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s;
+  const url = String(req.link || '').trim();
+  if (url && !/^https:\/\/(docs|drive)\.google\.com\/[A-Za-z0-9_\-\/.?=&%#]+$/.test(url)) return fail_('PARAM', '구글 문서·드라이브 주소만 붙일 수 있습니다.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const sh = ensureDocSheet_(getDb_());
+    const o = docFind_(sh, String(req.id || ''));
+    if (!o) return fail_('NOT_FOUND', '없는 문서입니다.');
+    if (o.authorId !== me.id && me.role !== MANAGER_ROLE && me.role !== '공무') return fail_('FORBIDDEN', '쓴 사람 또는 공무·현장소장만 링크를 바꿀 수 있습니다.');
+    if (o.status === DST.VOID) return fail_('STATE', '결번 처리된 문서입니다.');
+    o.link = url;
+    const m = url.match(/\/document\/d\/([A-Za-z0-9_\-]+)/);
+    o.docId = m ? m[1] : '';
+    docWrite_(sh, o, o._row);
+    audit_(me.id, '문서링크', o.docNo);
+    return { ok: true, item: docPublic_(o) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** 확정된 품의·공문의 본사 제출·확인 표시. 제출: 현장소장·공무, 확인: 현장소장(제출 뒤), 취소: 현장소장(사유 필수). */
+function hqDoc_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s;
+  const step = String(req.step || ''), note = cleanText_(req.note, 200);
+  if (HQ_STEPS.indexOf(step) < 0) return fail_('PARAM', '처리 단계를 알 수 없습니다.');
+  if (step === '제출' && me.role !== MANAGER_ROLE && me.role !== '공무') return fail_('FORBIDDEN', '현장소장과 공무만 본사 제출을 표시할 수 있습니다.');
+  if (step !== '제출' && me.role !== MANAGER_ROLE) return fail_('FORBIDDEN', '현장소장만 본사 확인·취소를 표시할 수 있습니다.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const sh = ensureDocSheet_(getDb_());
+    const o = docFind_(sh, String(req.id || ''));
+    if (!o) return fail_('NOT_FOUND', '없는 문서입니다.');
+    if (o.kind === '접수' || o.status !== DST.DONE) return fail_('STATE', '확정된 품의·공문만 본사 제출을 표시할 수 있습니다.');
+    if (step === '제출' && o.hq) return fail_('STATE', '이미 본사 ' + o.hq + ' 상태입니다.');
+    if (step === '확인' && o.hq !== '제출') return fail_('STATE', o.hq === '확인' ? '이미 본사 확인으로 표시되어 있습니다.' : '본사 제출을 먼저 표시해야 합니다.');
+    if (step === '취소') {
+      if (!o.hq) return fail_('STATE', '취소할 본사 제출 표시가 없습니다.');
+      if (note.length < 2) return fail_('PARAM', '취소하는 사유를 적어 주세요.');
+    }
+    const at = nowStr_();
+    if (step === '취소') { o.hq = ''; o.hqBy = ''; o.hqAt = ''; o.hqSubmitAt = ''; o.hqNote = ''; }
+    else { o.hq = step; o.hqBy = me.name; o.hqAt = at; o.hqNote = note; if (step === '제출') o.hqSubmitAt = at; }
+    docWrite_(sh, o, o._row);
+    audit_(me.id, '문서본사' + step, o.docNo + (note ? ' / ' + note : ''));
+    return { ok: true, item: docPublic_(o) };
+  } finally {
+    lock.releaseLock();
+  }
 }
