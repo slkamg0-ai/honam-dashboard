@@ -76,7 +76,7 @@ function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.7' }; }
+function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.8' }; }
 
 function route_(req) {
   const t0 = Date.now();
@@ -115,6 +115,7 @@ function route_(req) {
       case 'replyDoc': out = replyDoc_(req); break;
       case 'linkDoc': out = linkDoc_(req); break;
       case 'hqDoc': out = hqDoc_(req); break;
+    case 'gapjiDoc': out = gapjiDoc_(req); break;
       default: out = fail_('UNKNOWN_ACTION', '알 수 없는 요청입니다.');
     }
   } catch (err) {
@@ -1310,7 +1311,7 @@ const DOC_FIELDS = [['id', 'ID'], ['docNo', '문서번호'], ['kind', '구분'],
   ['due', '회신기한'], ['replied', '회신여부'], ['link', '문서링크'], ['docId', '문서ID'], ['folderId', '폴더ID'], ['pdf', '확정PDF'], ['ref', '참조'],
   ['summary', '본문요지'], ['attach', '붙임'], ['note', '비고'], ['authorId', '작성자ID'], ['author', '작성자'], ['reviewer', '검토자'], ['reviewedAt', '검토일시'],
   ['approver', '승인자'], ['approvedAt', '승인일시'], ['reason', '반려사유'], ['hq', '본사상태'], ['hqBy', '본사처리자'], ['hqAt', '본사처리일시'],
-  ['hqSubmitAt', '본사제출일시'], ['hqNote', '본사메모'], ['created', '작성일시'], ['updated', '수정일시'], ['cat', '문서구분'], ['amount', '집행금액']];
+  ['hqSubmitAt', '본사제출일시'], ['hqNote', '본사메모'], ['created', '작성일시'], ['updated', '수정일시'], ['cat', '문서구분'], ['amount', '집행금액'], ['gapji', '갑지PDF']];
 // 문서구분(갑지의 분류): 품의와 공문에만 있다. 이름만 저장한다.
 const DOC_CATS = { '품의': ['현장품의', '본사품의', '변경품의'], '공문': ['본사문서', '대관공문', '안전점검', '기타'] };
 const DOC_HEADERS = DOC_FIELDS.map(function (f) { return f[1]; });
@@ -1370,7 +1371,7 @@ function docPublic_(o) {
     id: o.id, docNo: o.docNo, kind: o.kind, date: o.date, party: o.party, title: o.title, status: o.status, due: o.due, replied: o.replied === 'Y',
     link: o.link, folderUrl: folderUrl_(o.folderId), pdf: o.pdf, ref: o.ref, summary: o.summary, attach: o.attach, note: o.note,
     authorId: o.authorId, author: o.author, reviewer: o.reviewer, reviewedAt: o.reviewedAt, approver: o.approver, approvedAt: o.approvedAt, reason: o.reason,
-    hq: { state: o.hq, by: o.hqBy, at: o.hqAt, submitAt: o.hqSubmitAt, note: o.hqNote }, created: o.created, updated: o.updated, cat: o.cat, amount: o.amount
+    hq: { state: o.hq, by: o.hqBy, at: o.hqAt, submitAt: o.hqSubmitAt, note: o.hqNote }, created: o.created, updated: o.updated, cat: o.cat, amount: o.amount, gapji: o.gapji
   };
 }
 
@@ -1482,6 +1483,124 @@ function docMakePdf_(o) {
   } catch (e) { return ''; }
 }
 
+// ───────────────────────────── 갑지 PDF ─────────────────────────────
+const GJ_CAT_LONG = { '현장품의': '[현장품의] 하도급 기성 / 자재 반입 검수 품의', '본사품의': '[본사품의] 본사 예산·구매·외주·현장경비 발의', '변경품의': '[변경품의] 현장 실정보고 및 설계변경 승인 품의',
+  '본사문서': '[본사문서] 본사 업무연락 / 현황보고 / 일반공문', '대관공문': '[대관공문] 감리단 / 국가철도공단 대관 발신공문', '안전점검': '[안전점검] 안전관리 / 작업계획서 / 재해예방 점검 보고', '기타': '[기타항목] 대외협조 / 민원회신 / 기타 일반문서' };
+const GJ_MGR_DEFAULT = '임석인';
+
+function gjEsc_(t) { return String(t === undefined || t === null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function gjMmdd_(s) { s = String(s || ''); return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(5, 7) + '/' + s.slice(8, 10) : ''; }
+
+/** 화면의 갑지와 같은 내용을 표(table)로만 짠 HTML (PDF 변환기는 flex·grid 를 지원하지 않는다) */
+function gapjiHtml_(o) {
+  const hq = { state: o.hq, by: o.hqBy, at: o.hqAt };
+  const drafted = o.status === DST.REVIEW || o.status === DST.APPROVAL || o.status === DST.DONE;
+  const approver = o.status === DST.DONE ? o.approver : '';
+  const ph = function (t) { return '<span style="color:#94a3b8;font-size:10px">' + gjEsc_(t) + '</span>'; };
+  const seal = function (role, name) {
+    return '<div style="width:50px;height:50px;border:2px solid #c81e1e;border-radius:25px;color:#c81e1e;font-weight:bold;text-align:center;margin:0 auto">' +
+      '<div style="padding-top:9px;font-size:9px;line-height:11px">' + gjEsc_(role) + '<br><span style="font-size:11px">' + gjEsc_(String(name || '').slice(0, 4)) + '</span></div></div>';
+  };
+  const box = function (color, l1, l2) { return '<div style="border:2px solid ' + color + ';color:' + color + ';font-weight:bold;font-size:10px;padding:3px 2px;margin:0 auto;width:56px;text-align:center">' + gjEsc_(l1) + (l2 ? '<br>' + gjEsc_(l2) : '') + '</div>'; };
+  const TH = 'border:1px solid #1e293b;background:#f1f5f9;font-weight:bold;text-align:center;padding:5px 4px;font-size:11px';
+  const TD = 'border:1px solid #1e293b;padding:5px 7px;font-size:12px';
+  const SC = 'border:1px solid #1e293b;text-align:center;vertical-align:middle;height:62px;width:70px';
+  const SD = 'border:1px solid #1e293b;text-align:center;height:22px;font-size:10px;color:#334155';
+  const heading = o.kind === '품의' ? '품 의 서 (기 안 문 갑 지)' : '공 문 (발 신 기 안 갑 지)';
+  const mgrName = approver || GJ_MGR_DEFAULT;
+  const party = o.party || (o.kind === '품의' ? '회장' : '');
+  const summary = gjEsc_(o.summary).replace(/\r?\n/g, '<br>');
+  const row = function (k, sub, v, style, thStyle) {
+    return '<tr><th style="' + TH + ';width:92px;' + (thStyle || '') + '">' + gjEsc_(k) + (sub ? '<br><span style="font-weight:normal;font-size:9px;color:#64748b">' + gjEsc_(sub) + '</span>' : '') + '</th><td style="' + TD + ';' + (style || '') + '">' + v + '</td></tr>';
+  };
+  const vpCell = hq.state === '확인' ? box('#15803d', '확인', hq.by) : ph(hq.state === '제출' ? '회신대기' : '서명');
+  const vpDate = hq.state === '확인' ? gjEsc_(gjMmdd_(hq.at)) : '&nbsp;';
+  const h = [];
+  h.push('<html><head><meta charset="utf-8"></head><body style="font-family:\'Malgun Gothic\',\'Nanum Gothic\',\'Noto Sans KR\',sans-serif;color:#0f172a;margin:0;padding:0">');
+  h.push('<div style="text-align:center;font-size:12px;font-weight:bold;color:#1e3a8a;margin-bottom:4px">[현장명: 호남고속선 정읍~광주송정 등 28개소 재해예방공사]</div>');
+  h.push('<div style="text-align:center;font-size:23px;font-weight:bold;letter-spacing:4px;margin:0 0 18px 0;text-decoration:underline">' + gjEsc_(heading) + '</div>');
+  h.push('<table style="width:100%;border-collapse:collapse;margin-bottom:14px"><tr><td style="vertical-align:top;width:34%;padding:0">');
+  h.push('<table style="width:100%;border-collapse:collapse">');
+  h.push(row('문서번호', '', gjEsc_(o.docNo)) + row('발신일자', '', gjEsc_(ymdDots_(o.date))) + row('문서구분', '', o.cat ? gjEsc_('[' + o.cat + ']') : ph('-')));
+  h.push('</table></td><td style="width:2%"></td><td style="vertical-align:top;padding:0">');
+  h.push('<table style="width:100%;border-collapse:collapse"><tr>');
+  h.push('<th rowspan="3" style="' + TH + ';width:20px">결<br>재</th>');
+  [['기 안', '(작성자)'], ['현장소장', '(현장대리인)'], ['부사장', '(본사 확인)'], ['회 장', '(본사 결재)']].forEach(function (x) { h.push('<th style="' + TH + '">' + x[0] + '<br><span style="font-weight:normal;font-size:9px">' + x[1] + '</span></th>'); });
+  h.push('</tr><tr>');
+  h.push('<td style="' + SC + '">' + (drafted ? seal('기안', o.author) : ph('미날인')) + '</td>');
+  h.push('<td style="' + SC + '">' + (approver ? seal('현장소장', approver) : ph(o.status === DST.APPROVAL ? '승인대기' : '미날인')) + '</td>');
+  h.push('<td style="' + SC + '">' + vpCell + '</td><td style="' + SC + '">' + ph('서명') + '</td></tr><tr>');
+  h.push('<td style="' + SD + '">' + (drafted ? gjEsc_(gjMmdd_(o.date)) : '&nbsp;') + '</td>');
+  h.push('<td style="' + SD + '">' + (approver ? gjEsc_(gjMmdd_(o.approvedAt)) : '&nbsp;') + '</td>');
+  h.push('<td style="' + SD + '">' + vpDate + '</td><td style="' + SD + '">&nbsp;</td></tr></table>');
+  h.push('</td></tr></table>');
+  h.push('<table style="width:100%;border-collapse:collapse">');
+  h.push(row('수 신 처', '', gjEsc_(party)));
+  h.push(row('제 목', '', gjEsc_(o.title), 'font-weight:bold;font-size:13px'));
+  if (o.kind === '품의') h.push(row('집행금액', '', gjEsc_(o.amount), 'font-weight:bold;color:#1d4ed8;height:24px'));
+  h.push(row(o.kind === '품의' ? '기안요약' : '발신요약', '(표준갑지)', summary, 'height:260px;vertical-align:top;line-height:1.7;padding:10px', 'vertical-align:top;padding-top:12px'));
+  h.push(row(o.kind === '공문' ? '붙 임' : '붙임/첨부', '', gjEsc_(o.attach), 'height:40px'));
+  h.push('</table>');
+  h.push('<div style="margin-top:26px;text-align:center;font-size:14px;font-weight:bold;letter-spacing:1px">' + gjEsc_((o.kind === '품의' ? '' : '(주)동우건설 ') + '호남고속선 재해예방공사 현장 현장소장 ' + mgrName) + '</div>');
+  h.push('</body></html>');
+  return h.join('');
+}
+
+/** 갑지를 PDF 로 같은 폴더에 남긴다(앞의 갑지 PDF 는 휴지통으로). 실패하면 빈 값. */
+function docMakeGapji_(o) {
+  if (!o.folderId || o.kind === '접수') return '';
+  try {
+    const blob = Utilities.newBlob(gapjiHtml_(o), 'text/html', 'gapji.html').getAs('application/pdf');
+    blob.setName(o.docNo + '_' + safeName_(o.title) + '_갑지.pdf');
+    const f = DriveApp.getFolderById(o.folderId).createFile(blob);
+    const old = /\/file\/d\/([^\/]+)/.exec(String(o.gapji || ''));
+    if (old && old[1] !== f.getId()) { try { DriveApp.getFileById(old[1]).setTrashed(true); } catch (e) { } }
+    return 'https://drive.google.com/file/d/' + f.getId() + '/view';
+  } catch (e) { return ''; }
+}
+
+/** 갑지 PDF 를 새로 만들어 o.gapji 에 담는다. 경고 문장 배열을 돌려준다. */
+function gapjiRefresh_(o) {
+  if (o.kind === '접수') return [];
+  const u = docMakeGapji_(o);
+  if (u) { o.gapji = u; return []; }
+  return ['갑지 PDF를 만들지 못했습니다. 상세 화면의 「갑지 PDF 다시 만들기」로 다시 해 볼 수 있습니다.'];
+}
+
+function gapjiDoc_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const sh = ensureDocSheet_(getDb_());
+    const o = docFind_(sh, String(req.id || ''));
+    if (!o) return fail_('NOT_FOUND', '없는 문서입니다.');
+    if (o.kind === '접수') return fail_('STATE', '받은 문서에는 갑지가 없습니다.');
+    if (o.status !== DST.DONE) return fail_('STATE', '확정된 문서만 갑지 PDF를 만듭니다.');
+    if (o.authorId !== me.id && me.role !== MANAGER_ROLE && me.role !== '공무') return fail_('FORBIDDEN', '쓴 사람 또는 공무·현장소장만 만들 수 있습니다.');
+    const warn = gapjiRefresh_(o);
+    if (warn.length) return fail_('PDF', warn[0]);
+    docWrite_(sh, o, o._row);
+    audit_(me.id, '문서갑지PDF', o.docNo);
+    return { ok: true, item: docPublic_(o) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** 편집기에서 직접 실행하는 시험용: 보기 좋은 예시 갑지를 PDF 로 만들어 내 드라이브 맨 위에 둔다(이름 고정, 다시 실행하면 이전 것은 휴지통으로). */
+function gapjiSample() {
+  const o = { docNo: '호남-품의-2026-004', kind: '품의', cat: '현장품의', date: '2026-11-09', party: '회장', title: '우기 대비 배수시설 보강 자재 반입 검수 및 기성 품의', amount: '64,200,000원 (부가세 별도)',
+    summary: '1. 호남고속선 정읍~광주송정 등 28개소 재해예방공사 관련입니다.\n2. 정읍~장성 구간 사면 배수시설 및 낙석방지책 설치 공종에 투입된 주요 자재 반입 검수 및 금회 기성 산출 내역을 붙임과 같이 상신하오니 승인하여 주시기 바랍니다.',
+    attach: '검수조서 1부, 기성내역서 엑셀', author: '곽호진', status: DST.DONE, approver: '임석인', approvedAt: '2026-11-09 10:20:00', hq: '확인', hqBy: '임석인', hqAt: '2026-11-10 09:00:00' };
+  const blob = Utilities.newBlob(gapjiHtml_(o), 'text/html', 'gapji.html').getAs('application/pdf').setName('HN28_갑지PDF_시험.pdf');
+  const it = DriveApp.getRootFolder().getFilesByName('HN28_갑지PDF_시험.pdf');
+  while (it.hasNext()) it.next().setTrashed(true);
+  const f = DriveApp.getRootFolder().createFile(blob);
+  Logger.log('갑지 시험 PDF: ' + f.getId());
+}
+
 function docValidate_(req, kind) {
   const v = {};
   v.date = String(req.date || nowStr_().slice(0, 10));
@@ -1577,11 +1696,12 @@ function submitDoc_(req) {
     if (o.authorId !== me.id) return fail_('FORBIDDEN', '본인이 쓴 문서만 제출할 수 있습니다.');
     if (o.status !== DST.DRAFT && o.status !== DST.REJECT) return fail_('STATE', '이미 제출된 문서입니다.');
     o.reason = ''; o.reviewer = ''; o.reviewedAt = ''; o.approver = ''; o.approvedAt = '';
-    if (me.role === MANAGER_ROLE) { o.status = DST.DONE; o.approver = me.name; o.approvedAt = nowStr_(); o.pdf = docMakePdf_(o); } // 현장소장이 쓴 문서는 제출이 곧 확정
+    let warn = [];
+    if (me.role === MANAGER_ROLE) { o.status = DST.DONE; o.approver = me.name; o.approvedAt = nowStr_(); o.pdf = docMakePdf_(o); warn = gapjiRefresh_(o); } // 현장소장이 쓴 문서는 제출이 곧 확정
     else o.status = me.role === '공무' ? DST.APPROVAL : DST.REVIEW; // 공무가 쓴 문서는 본인이 검토할 수 없으므로 검토 단계를 건너뛴다
     docWrite_(sh, o, o._row);
     audit_(me.id, '문서제출', o.docNo + ' → ' + o.status);
-    return { ok: true, item: docPublic_(o) };
+    return { ok: true, item: docPublic_(o), warn: warn };
   } finally {
     lock.releaseLock();
   }
@@ -1627,10 +1747,11 @@ function approveDoc_(req) {
     if (!o) return fail_('NOT_FOUND', '없는 문서입니다.');
     if (o.status !== DST.APPROVAL) return fail_('STATE', '승인 대기 중인 문서가 아닙니다.');
     o.approver = me.name; o.approvedAt = nowStr_();
-    if (ok) { o.status = DST.DONE; o.reason = ''; o.pdf = docMakePdf_(o); } else { o.status = DST.REJECT; o.reason = reason; }
+    let warn = [];
+    if (ok) { o.status = DST.DONE; o.reason = ''; o.pdf = docMakePdf_(o); warn = gapjiRefresh_(o); } else { o.status = DST.REJECT; o.reason = reason; }
     docWrite_(sh, o, o._row);
     audit_(me.id, ok ? '문서확정' : '문서반려(승인)', o.docNo);
-    return { ok: true, item: docPublic_(o) };
+    return { ok: true, item: docPublic_(o), warn: warn };
   } finally {
     lock.releaseLock();
   }
@@ -1731,9 +1852,10 @@ function hqDoc_(req) {
     const at = nowStr_();
     if (step === '취소') { o.hq = ''; o.hqBy = ''; o.hqAt = ''; o.hqSubmitAt = ''; o.hqNote = ''; }
     else { o.hq = step; o.hqBy = me.name; o.hqAt = at; o.hqNote = note; if (step === '제출') o.hqSubmitAt = at; }
+    const warn = gapjiRefresh_(o); // 부사장 칸이 바뀌므로 갑지 PDF 를 새로 만든다
     docWrite_(sh, o, o._row);
     audit_(me.id, '문서본사' + step, o.docNo + (note ? ' / ' + note : ''));
-    return { ok: true, item: docPublic_(o) };
+    return { ok: true, item: docPublic_(o), warn: warn };
   } finally {
     lock.releaseLock();
   }
