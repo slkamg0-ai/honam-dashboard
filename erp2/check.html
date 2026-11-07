@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>HN28 현장 ERP v2 · 연결 확인(점검용)</title>
+<style>
+  body { font-family: -apple-system, "Malgun Gothic", sans-serif; margin: 0; background: #f1f5f9; color: #0f172a; }
+  main { max-width: 640px; margin: 0 auto; padding: 18px 14px 40px; }
+  h1 { font-size: 19px; margin: 6px 0 2px; }
+  p.sub { margin: 0 0 14px; font-size: 13px; color: #475569; }
+  .card { background: #fff; border-radius: 12px; padding: 14px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  label { display: block; font-size: 12.5px; font-weight: 700; margin-bottom: 4px; }
+  input[type=text] { width: 100%; box-sizing: border-box; font-size: 15px; padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; }
+  button { font-size: 15px; font-weight: 700; padding: 11px 16px; border: 0; border-radius: 8px; background: #1d4ed8; color: #fff; margin-top: 10px; }
+  button:disabled { background: #94a3b8; }
+  .row { display: flex; gap: 8px; align-items: baseline; padding: 8px 0; border-top: 1px solid #e2e8f0; font-size: 14px; }
+  .row:first-child { border-top: 0; }
+  .st { width: 56px; font-weight: 800; flex: none; }
+  .ok { color: #15803d; } .ng { color: #b91c1c; } .wait { color: #64748b; }
+  .detail { font: 12px/1.5 monospace; color: #475569; word-break: break-all; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<main>
+  <h1>HN28 현장 ERP v2 · 연결 확인</h1>
+  <p class="sub">화면 → 서버 → 구글 시트까지 길이 열려 있는지 세 단계로 확인합니다.</p>
+
+  <div class="card">
+    <label for="api">서버 주소 (Apps Script 웹 앱 /exec 주소)</label>
+    <input type="text" id="api" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off">
+    <button id="go">연결 확인 시작</button>
+  </div>
+
+  <div class="card" id="result" style="display:none"></div>
+</main>
+
+<script src="config.js"></script>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var KEY = 'HN28V2_API_URL';
+  var cfg = (window.ERP2_CONFIG && window.ERP2_CONFIG.API_URL) || '';
+  var saved = '';
+  try { saved = localStorage.getItem(KEY) || ''; } catch (e) {}
+  $('api').value = saved || cfg;
+
+  function esc(s) { return String(s).replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); }
+
+  // 서버 호출 공통: 15초 안에 답이 없으면 실패로 처리한다 (멈춘 채로 두지 않는다)
+  function call(url, payload) {
+    var ctrl = new AbortController();
+    var timer = setTimeout(function () { ctrl.abort(); }, 15000);
+    var t0 = Date.now();
+    var opt = payload
+      ? { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload), signal: ctrl.signal }
+      : { method: 'GET', signal: ctrl.signal };
+    var u = payload ? url : url + (url.indexOf('?') < 0 ? '?' : '&') + 'action=ping&_=' + Date.now();
+    return fetch(u, opt).then(function (r) {
+      return r.text().then(function (txt) {
+        clearTimeout(timer);
+        var j = null; try { j = JSON.parse(txt); } catch (e) {}
+        return { status: r.status, ms: Date.now() - t0, json: j, raw: txt.slice(0, 300) };
+      });
+    }).catch(function (e) {
+      clearTimeout(timer);
+      return { status: 0, ms: Date.now() - t0, json: null, raw: '', err: e && e.name === 'AbortError' ? '15초 안에 응답이 없습니다' : String(e && e.message || e) };
+    });
+  }
+
+  function render(rows) {
+    var box = $('result'); box.style.display = '';
+    box.innerHTML = rows.map(function (r) {
+      return '<div class="row"><div class="st ' + r.cls + '">' + r.st + '</div><div><div>' + esc(r.title) + '</div>' +
+        (r.detail ? '<div class="detail">' + esc(r.detail) + '</div>' : '') + '</div></div>';
+    }).join('');
+  }
+
+  function hint(res) {
+    if (res.err) return res.err;
+    if (res.json) return '';
+    if (/<html|<!doctype/i.test(res.raw)) return '서버가 JSON 대신 HTML 페이지를 돌려줬습니다. 보통 (1) 웹 앱 액세스가 "모든 사용자"가 아니거나 (2) 주소가 /exec 가 아니거나 (3) 처음 권한 승인이 안 된 경우입니다.\n' + res.raw.replace(/\s+/g, ' ').slice(0, 160);
+    return '응답을 읽지 못했습니다: ' + res.raw;
+  }
+
+  $('go').onclick = function () {
+    var url = $('api').value.trim();
+    if (!/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec/.test(url)) {
+      render([{ st: '입력', cls: 'ng', title: '주소 형식이 맞지 않습니다', detail: 'https://script.google.com/macros/s/.../exec 로 끝나는 주소를 넣어 주세요.' }]);
+      return;
+    }
+    try { localStorage.setItem(KEY, url); } catch (e) {}
+    var btn = $('go'); btn.disabled = true;
+    var rows = [
+      { st: '대기', cls: 'wait', title: '1. 서버에 말 걸기 (GET ping)' },
+      { st: '대기', cls: 'wait', title: '2. 서버에 보내기 (POST ping)' },
+      { st: '대기', cls: 'wait', title: '3. 서버 버전 확인 (ping)' }
+    ];
+    render(rows);
+
+    function done(i, res, okText) {
+      var good = res.json && res.json.ok;
+      rows[i].st = good ? '성공' : '실패'; rows[i].cls = good ? 'ok' : 'ng';
+      rows[i].detail = good ? (okText(res.json) + ' · 왕복 ' + res.ms + 'ms') : (hint(res) || (res.json && (res.json.message || res.json.error)) || ('HTTP ' + res.status));
+      render(rows);
+      return good;
+    }
+
+    call(url).then(function (r1) {
+      if (!done(0, r1, function (j) { return '서버 시각 ' + j.now; })) return;
+      return call(url, { action: 'ping' }).then(function (r2) {
+        if (!done(1, r2, function (j) { return '서버 처리 ' + j.serverMs + 'ms'; })) return;
+        return call(url, { action: 'ping' }).then(function (r3) {
+          done(2, r3, function (j) { return '서버 버전 ' + j.version; });
+        });
+      });
+    }).then(function () { btn.disabled = false; });
+  };
+})();
+</script>
+</body>
+</html>

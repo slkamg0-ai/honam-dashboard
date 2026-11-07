@@ -4,119 +4,331 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
-<title>HN28 현장 ERP v2 · 연결 확인</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>호남고속선 현장 ERP</title>
 <style>
-  body { font-family: -apple-system, "Malgun Gothic", sans-serif; margin: 0; background: #f1f5f9; color: #0f172a; }
-  main { max-width: 640px; margin: 0 auto; padding: 18px 14px 40px; }
-  h1 { font-size: 19px; margin: 6px 0 2px; }
-  p.sub { margin: 0 0 14px; font-size: 13px; color: #475569; }
-  .card { background: #fff; border-radius: 12px; padding: 14px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
-  label { display: block; font-size: 12.5px; font-weight: 700; margin-bottom: 4px; }
-  input[type=text] { width: 100%; box-sizing: border-box; font-size: 15px; padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; }
-  button { font-size: 15px; font-weight: 700; padding: 11px 16px; border: 0; border-radius: 8px; background: #1d4ed8; color: #fff; margin-top: 10px; }
-  button:disabled { background: #94a3b8; }
-  .row { display: flex; gap: 8px; align-items: baseline; padding: 8px 0; border-top: 1px solid #e2e8f0; font-size: 14px; }
-  .row:first-child { border-top: 0; }
-  .st { width: 56px; font-weight: 800; flex: none; }
-  .ok { color: #15803d; } .ng { color: #b91c1c; } .wait { color: #64748b; }
-  .detail { font: 12px/1.5 monospace; color: #475569; word-break: break-all; white-space: pre-wrap; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "Malgun Gothic", sans-serif; background: #f1f5f9; color: #0f172a; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 14px; }
+  .center { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; background: linear-gradient(135deg, #0f2942, #1e3a5f); }
+  .card { background: #fff; border-radius: 14px; padding: 22px 20px; box-shadow: 0 2px 8px rgba(0,0,0,.12); width: 100%; max-width: 400px; }
+  .site { font-size: 11.5px; font-weight: 700; color: #475569; line-height: 1.4; }
+  h2 { margin: 8px 0 4px; font-size: 20px; color: #0f2942; }
+  .desc { font-size: 13px; color: #475569; line-height: 1.55; margin: 0 0 10px; }
+  label { display: block; font-size: 12.5px; font-weight: 700; margin: 12px 0 4px; }
+  input[type=text], input[type=password], select { width: 100%; font-size: 16px; padding: 11px 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; }
+  button { font-size: 15px; font-weight: 700; border: 0; border-radius: 8px; padding: 11px 14px; cursor: pointer; background: #e2e8f0; color: #0f172a; }
+  button.pri { background: #1d4ed8; color: #fff; width: 100%; margin-top: 16px; padding: 13px; }
+  button.sm { font-size: 12.5px; padding: 7px 10px; }
+  button.warn { background: #fee2e2; color: #991b1b; }
+  button:disabled { opacity: .55; cursor: default; }
+  .msg { min-height: 20px; margin-top: 10px; font-size: 13px; color: #b91c1c; white-space: pre-wrap; }
+  .msg.info { color: #1d4ed8; }
+  .hide { display: none !important; }
+  .bar { background: #0f2942; color: #fff; padding: 10px 14px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .bar .t { font-weight: 800; font-size: 14px; flex: 1; min-width: 160px; }
+  .chip { background: rgba(255,255,255,.15); border-radius: 14px; padding: 4px 10px; font-size: 12.5px; font-weight: 700; }
+  .bar button { background: rgba(255,255,255,.18); color: #fff; font-size: 12.5px; padding: 6px 10px; }
+  .panel { background: #fff; border-radius: 12px; padding: 14px; margin: 12px 0; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .panel h3 { margin: 0 0 8px; font-size: 15px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  .tile { background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 10px; padding: 12px; font-size: 13.5px; font-weight: 700; color: #64748b; }
+  .tile small { display: block; font-weight: 500; margin-top: 2px; font-size: 11.5px; }
+  .urow { display: grid; grid-template-columns: 1.2fr 1fr auto; gap: 8px; align-items: center; padding: 10px 0; border-top: 1px solid #e2e8f0; }
+  .urow:first-of-type { border-top: 0; }
+  .urow .nm { font-weight: 800; font-size: 14.5px; }
+  .urow .nm small { display: block; font-weight: 500; color: #64748b; font-size: 11.5px; }
+  .tag { display: inline-block; font-size: 11px; font-weight: 800; padding: 2px 7px; border-radius: 9px; margin-right: 4px; background: #dcfce7; color: #166534; }
+  .tag.off { background: #f1f5f9; color: #475569; } .tag.lock { background: #fee2e2; color: #991b1b; } .tag.tmp { background: #fef3c7; color: #92400e; }
+  .acts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .temp { background: #fffbeb; border: 2px solid #f59e0b; border-radius: 10px; padding: 12px; margin: 10px 0; }
+  .temp .pin { font: 800 28px/1.3 monospace; letter-spacing: 4px; color: #92400e; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  @media (max-width: 520px) { .urow { grid-template-columns: 1fr; } .acts { justify-content: flex-start; } .grid2 { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
-<main>
-  <h1>HN28 현장 ERP v2 · 연결 확인</h1>
-  <p class="sub">화면 → 서버 → 구글 시트까지 길이 열려 있는지 세 단계로 확인합니다.</p>
 
+<!-- 연결 중 / 로그인 / PIN 변경 -->
+<div id="vCenter" class="center">
   <div class="card">
-    <label for="api">서버 주소 (Apps Script 웹 앱 /exec 주소)</label>
-    <input type="text" id="api" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off">
-    <button id="go">연결 확인 시작</button>
-  </div>
+    <div class="site">호남고속선 정읍~광주송정 등 28개소 재해예방공사 · 현장코드 HN28</div>
 
-  <div class="card" id="result" style="display:none"></div>
-</main>
+    <div id="pLoading">
+      <h2 id="loadTitle">접속 확인 중…</h2>
+      <p class="desc" id="loadDesc">서버에 연결하고 있습니다.</p>
+      <button id="btnRetry" class="pri hide">다시 시도</button>
+    </div>
+
+    <form id="pLogin" class="hide" autocomplete="on">
+      <h2>현장 통합 ERP 로그인</h2>
+      <p class="desc">등록된 로그인 ID와 개인 PIN으로 들어옵니다. 구글 계정은 필요하지 않습니다.</p>
+      <label for="loginId">로그인 ID</label>
+      <input type="text" id="loginId" name="username" autocomplete="username" autocapitalize="off" maxlength="20">
+      <label for="loginPin">PIN</label>
+      <input type="password" id="loginPin" name="password" autocomplete="current-password" inputmode="numeric" maxlength="6">
+      <button class="pri" id="btnLogin" type="submit">로그인</button>
+      <div class="msg" id="loginMsg"></div>
+      <p class="desc">PIN을 잊었거나 잠겼으면 현장소장에게 PIN 초기화를 요청하세요. 5번 틀리면 15분간 잠깁니다.</p>
+    </form>
+
+    <form id="pPin" class="hide" autocomplete="off">
+      <h2 id="pinTitle">PIN 변경</h2>
+      <p class="desc" id="pinDesc">4~6자리 숫자로 정해 주세요. 1111, 1234처럼 반복·연속된 숫자는 쓸 수 없습니다.</p>
+      <div id="oldWrap"><label for="pinOld">현재 PIN</label><input type="password" id="pinOld" inputmode="numeric" maxlength="6" autocomplete="current-password"></div>
+      <label for="pinNew">새 PIN</label>
+      <input type="password" id="pinNew" inputmode="numeric" maxlength="6" autocomplete="new-password">
+      <label for="pinNew2">새 PIN 확인</label>
+      <input type="password" id="pinNew2" inputmode="numeric" maxlength="6" autocomplete="new-password">
+      <button class="pri" id="btnPin" type="submit">PIN 변경</button>
+      <button type="button" id="btnPinCancel" class="hide" style="width:100%;margin-top:8px">취소</button>
+      <div class="msg" id="pinMsg"></div>
+    </form>
+  </div>
+</div>
+
+<!-- 로그인 후 화면 -->
+<div id="vApp" class="hide">
+  <div class="bar">
+    <div class="t">호남고속선 재해예방공사 · HN28 현장 ERP</div>
+    <span class="chip" id="who"></span>
+    <button id="btnAdmin" class="hide">직원 관리</button>
+    <button id="btnChange">PIN 변경</button>
+    <button id="btnLogout">로그아웃</button>
+  </div>
+  <div class="wrap">
+    <div id="vHome">
+      <div class="panel">
+        <h3>현장 ERP v2</h3>
+        <p class="desc">로그인과 직원 관리까지 연결되었습니다. 아래 기능은 순서대로 열립니다.</p>
+        <div class="tiles">
+          <div class="tile">경비 입력<small>다음 단계</small></div>
+          <div class="tile">전자결재<small>예정</small></div>
+          <div class="tile">작업일보<small>예정</small></div>
+          <div class="tile">월 마감<small>예정</small></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="vAdmin" class="hide">
+      <div class="panel">
+        <h3>직원 관리 <button class="sm" id="btnAdminBack" style="float:right">돌아가기</button></h3>
+        <div id="tempBox" class="temp hide">
+          <div id="tempWho" style="font-weight:800"></div>
+          <div class="pin" id="tempPin"></div>
+          <div class="desc" style="margin:4px 0 8px">임시 PIN은 이 화면을 닫으면 다시 볼 수 없습니다. 직원에게 직접 전달하세요. 처음 로그인할 때 PIN을 바꾸게 됩니다.</div>
+          <button class="sm" id="btnTempClose">확인했습니다</button>
+        </div>
+        <div id="userList"></div>
+        <div class="msg" id="adminMsg"></div>
+      </div>
+      <div class="panel">
+        <h3>직원 추가</h3>
+        <div class="grid2">
+          <div><label for="nuId">로그인 ID</label><input type="text" id="nuId" maxlength="20" autocomplete="off"></div>
+          <div><label for="nuName">이름</label><input type="text" id="nuName" maxlength="20" autocomplete="off"></div>
+        </div>
+        <label for="nuRole">역할</label>
+        <select id="nuRole"><option>공사</option><option>공무</option><option>현장소장</option></select>
+        <button class="pri" id="btnAdd">직원 추가</button>
+        <div class="msg" id="addMsg"></div>
+      </div>
+    </div>
+  </div>
+</div>
 
 <script src="config.js"></script>
 <script>
 (function () {
+  'use strict';
+  var API = (window.ERP2_CONFIG && window.ERP2_CONFIG.API_URL) || '';
+  var TOKEN_KEY = 'HN28V2_TOKEN', LAST_ID_KEY = 'HN28V2_LAST_ID';
+  var ROLES = ['공사', '공무', '현장소장'];
+  var me = null, token = '', pinMode = 'first';
   var $ = function (id) { return document.getElementById(id); };
-  var KEY = 'HN28V2_API_URL';
-  var cfg = (window.ERP2_CONFIG && window.ERP2_CONFIG.API_URL) || '';
-  var saved = '';
-  try { saved = localStorage.getItem(KEY) || ''; } catch (e) {}
-  $('api').value = saved || cfg;
 
-  function esc(s) { return String(s).replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); }
+  function store(k, v) { try { if (v) sessionStorage.setItem(k, v); else sessionStorage.removeItem(k); } catch (e) {} }
+  function load(k) { try { return sessionStorage.getItem(k) || ''; } catch (e) { return ''; } }
+  function lastId(v) { try { if (v === undefined) return localStorage.getItem(LAST_ID_KEY) || ''; localStorage.setItem(LAST_ID_KEY, v); } catch (e) { return ''; } }
 
-  // 서버 호출 공통: 15초 안에 답이 없으면 실패로 처리한다 (멈춘 채로 두지 않는다)
-  function call(url, payload) {
+  // ── 서버 호출: 항상 끝이 난다 (성공 / 실패 / 시간초과) ──
+  function api(action, data, timeoutMs) {
+    var body = { action: action }; for (var k in (data || {})) body[k] = data[k];
     var ctrl = new AbortController();
-    var timer = setTimeout(function () { ctrl.abort(); }, 15000);
-    var t0 = Date.now();
-    var opt = payload
-      ? { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload), signal: ctrl.signal }
-      : { method: 'GET', signal: ctrl.signal };
-    var u = payload ? url : url + (url.indexOf('?') < 0 ? '?' : '&') + 'action=ping&_=' + Date.now();
-    return fetch(u, opt).then(function (r) {
-      return r.text().then(function (txt) {
+    var timer = setTimeout(function () { ctrl.abort(); }, timeoutMs || 20000);
+    return fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body), signal: ctrl.signal })
+      .then(function (r) { return r.text(); })
+      .then(function (t) {
         clearTimeout(timer);
-        var j = null; try { j = JSON.parse(txt); } catch (e) {}
-        return { status: r.status, ms: Date.now() - t0, json: j, raw: txt.slice(0, 300) };
+        try { return JSON.parse(t); } catch (e) { return { ok: false, error: 'BAD_RESPONSE', message: '서버 응답을 읽지 못했습니다. 잠시 후 다시 시도해 주세요.' }; }
+      })
+      .catch(function (e) {
+        clearTimeout(timer);
+        return { ok: false, error: 'NETWORK', message: e && e.name === 'AbortError' ? '서버가 응답하지 않습니다. 잠시 후 다시 시도해 주세요.' : '서버에 연결하지 못했습니다. 인터넷 연결을 확인해 주세요.' };
       });
-    }).catch(function (e) {
-      clearTimeout(timer);
-      return { status: 0, ms: Date.now() - t0, json: null, raw: '', err: e && e.name === 'AbortError' ? '15초 안에 응답이 없습니다' : String(e && e.message || e) };
+  }
+
+  // ── 화면 전환 ──
+  function showOnly(id) {
+    ['pLoading', 'pLogin', 'pPin'].forEach(function (p) { $(p).classList.toggle('hide', p !== id); });
+    var inCard = ['pLoading', 'pLogin', 'pPin'].indexOf(id) >= 0;
+    $('vCenter').classList.toggle('hide', !inCard);
+    $('vApp').classList.toggle('hide', inCard);
+  }
+  function showLogin(msg, info) {
+    showOnly('pLogin');
+    $('loginMsg').className = 'msg' + (info ? ' info' : ''); $('loginMsg').textContent = msg || '';
+    if (!$('loginId').value) $('loginId').value = lastId();
+    $('loginPin').value = '';
+    setTimeout(function () { ($('loginId').value ? $('loginPin') : $('loginId')).focus(); }, 30);
+  }
+  function showLoading(title, desc, retry) {
+    showOnly('pLoading'); $('loadTitle').textContent = title; $('loadDesc').textContent = desc; $('btnRetry').classList.toggle('hide', !retry);
+  }
+  function enterApp() {
+    showOnly('vApp');
+    $('who').textContent = me.name + ' · ' + me.role;
+    $('btnAdmin').classList.toggle('hide', me.role !== '현장소장');
+    $('vHome').classList.remove('hide'); $('vAdmin').classList.add('hide');
+  }
+  function toLogin(msg, info) { token = ''; me = null; store(TOKEN_KEY, ''); showLogin(msg, info); }
+  function authLost(res) { if (res && res.error === 'AUTH') { toLogin('다시 로그인해 주세요. (' + (res.message || '로그인이 만료되었습니다.') + ')'); return true; } return false; }
+
+  // ── 시작 ──
+  function boot() {
+    if (!/^https:\/\/script\.google\.com\/macros\/s\//.test(API)) { showLoading('설정 오류', '서버 주소가 설정되지 않았습니다. 관리자에게 알려 주세요.', false); return; }
+    token = load(TOKEN_KEY);
+    if (!token) { showLogin(''); return; }
+    showLoading('접속 확인 중…', '로그인 상태를 확인하고 있습니다.', false);
+    var slow = setTimeout(function () { $('loadDesc').textContent = '서버 응답이 늦어지고 있습니다. 잠시만 기다려 주세요.'; }, 6000);
+    api('whoami', { token: token }, 15000).then(function (r) {
+      clearTimeout(slow);
+      if (r.ok) { me = r.user; if (r.mustChangePin) openPin('first'); else enterApp(); return; }
+      if (r.error === 'NETWORK' || r.error === 'BAD_RESPONSE') { showLoading('서버에 연결하지 못했습니다', r.message, true); return; }
+      toLogin('');
+    });
+  }
+  $('btnRetry').onclick = boot;
+
+  // ── 로그인 ──
+  $('pLogin').onsubmit = function (ev) {
+    ev.preventDefault();
+    var id = $('loginId').value.trim(), pin = $('loginPin').value.trim(), msg = $('loginMsg');
+    if (!id || !pin) { msg.className = 'msg'; msg.textContent = '로그인 ID와 PIN을 모두 입력해 주세요.'; return; }
+    $('btnLogin').disabled = true; msg.className = 'msg info'; msg.textContent = '확인 중…';
+    api('login', { loginId: id, pin: pin }).then(function (r) {
+      $('btnLogin').disabled = false;
+      if (!r.ok) { msg.className = 'msg'; msg.textContent = r.message || '로그인하지 못했습니다.'; $('loginPin').value = ''; return; }
+      token = r.token; store(TOKEN_KEY, token); lastId(id); me = r.user; $('loginPin').value = '';
+      if (r.mustChangePin) openPin('first'); else enterApp();
+    });
+  };
+
+  // ── PIN 변경 ──
+  function openPin(mode) {
+    pinMode = mode; showOnly('pPin');
+    $('pinTitle').textContent = mode === 'first' ? '처음 로그인: PIN을 바꿔 주세요' : 'PIN 변경';
+    $('oldWrap').classList.toggle('hide', mode === 'first'); $('btnPinCancel').classList.toggle('hide', mode === 'first');
+    ['pinOld', 'pinNew', 'pinNew2'].forEach(function (i) { $(i).value = ''; }); $('pinMsg').textContent = '';
+    if (mode !== 'first') { $('vCenter').classList.remove('hide'); $('vApp').classList.add('hide'); }
+  }
+  function pinProblem(p) {
+    if (!/^\d{4,6}$/.test(p)) return 'PIN은 숫자 4~6자리여야 합니다.';
+    if (/^(\d)\1+$/.test(p)) return '같은 숫자를 반복한 PIN은 쓸 수 없습니다.';
+    var up = true, down = true;
+    for (var i = 1; i < p.length; i++) { if (+p[i] !== +p[i - 1] + 1) up = false; if (+p[i] !== +p[i - 1] - 1) down = false; }
+    return (up || down) ? '1234, 4321처럼 연속된 숫자 PIN은 쓸 수 없습니다.' : '';
+  }
+  $('pPin').onsubmit = function (ev) {
+    ev.preventDefault();
+    var a = $('pinNew').value.trim(), b = $('pinNew2').value.trim(), m = $('pinMsg'); m.className = 'msg';
+    var bad = pinProblem(a); if (bad) { m.textContent = bad; return; }
+    if (a !== b) { m.textContent = '새 PIN과 확인 PIN이 일치하지 않습니다.'; return; }
+    $('btnPin').disabled = true;
+    api('changePin', { token: token, oldPin: $('pinOld').value.trim(), newPin: a }).then(function (r) {
+      $('btnPin').disabled = false;
+      if (authLost(r)) return;
+      if (!r.ok) { m.textContent = r.message || 'PIN을 바꾸지 못했습니다.'; return; }
+      token = r.token; store(TOKEN_KEY, token); me = r.user; enterApp();
+    });
+  };
+  $('btnPinCancel').onclick = function () { enterApp(); };
+  $('btnChange').onclick = function () { openPin('normal'); };
+
+  $('btnLogout').onclick = function () { var t = token; toLogin('로그아웃했습니다.', true); api('logout', { token: t }, 8000); };
+
+  // ── 직원 관리 ──
+  function adminMsg(t, info) { $('adminMsg').className = 'msg' + (info ? ' info' : ''); $('adminMsg').textContent = t || ''; }
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
+
+  function showTemp(who, pin) { $('tempWho').textContent = who + ' 님의 임시 PIN'; $('tempPin').textContent = pin; $('tempBox').classList.remove('hide'); }
+  $('btnTempClose').onclick = function () { $('tempBox').classList.add('hide'); $('tempPin').textContent = ''; };
+
+  function openAdmin() { $('vHome').classList.add('hide'); $('vAdmin').classList.remove('hide'); adminMsg('불러오는 중…', true); loadUsers(); }
+  $('btnAdmin').onclick = openAdmin;
+  $('btnAdminBack').onclick = function () { $('vAdmin').classList.add('hide'); $('vHome').classList.remove('hide'); $('tempBox').classList.add('hide'); $('tempPin').textContent = ''; };
+
+  function save(data, doneMsg) {
+    adminMsg('저장 중…', true);
+    data.token = token;
+    return api('saveUser', data).then(function (r) {
+      if (authLost(r)) return null;
+      if (!r.ok) { adminMsg(r.message || '저장하지 못했습니다.'); return null; }
+      adminMsg(doneMsg, true); loadUsers(); return r;
     });
   }
 
-  function render(rows) {
-    var box = $('result'); box.style.display = '';
-    box.innerHTML = rows.map(function (r) {
-      return '<div class="row"><div class="st ' + r.cls + '">' + r.st + '</div><div><div>' + esc(r.title) + '</div>' +
-        (r.detail ? '<div class="detail">' + esc(r.detail) + '</div>' : '') + '</div></div>';
-    }).join('');
-  }
-
-  function hint(res) {
-    if (res.err) return res.err;
-    if (res.json) return '';
-    if (/<html|<!doctype/i.test(res.raw)) return '서버가 JSON 대신 HTML 페이지를 돌려줬습니다. 보통 (1) 웹 앱 액세스가 "모든 사용자"가 아니거나 (2) 주소가 /exec 가 아니거나 (3) 처음 권한 승인이 안 된 경우입니다.\n' + res.raw.replace(/\s+/g, ' ').slice(0, 160);
-    return '응답을 읽지 못했습니다: ' + res.raw;
-  }
-
-  $('go').onclick = function () {
-    var url = $('api').value.trim();
-    if (!/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec/.test(url)) {
-      render([{ st: '입력', cls: 'ng', title: '주소 형식이 맞지 않습니다', detail: 'https://script.google.com/macros/s/.../exec 로 끝나는 주소를 넣어 주세요.' }]);
-      return;
-    }
-    try { localStorage.setItem(KEY, url); } catch (e) {}
-    var btn = $('go'); btn.disabled = true;
-    var rows = [
-      { st: '대기', cls: 'wait', title: '1. 서버에 말 걸기 (GET ping)' },
-      { st: '대기', cls: 'wait', title: '2. 서버에 보내기 (POST ping)' },
-      { st: '대기', cls: 'wait', title: '3. 구글 시트에 쓰고 읽기 (dbTest)' }
-    ];
-    render(rows);
-
-    function done(i, res, okText) {
-      var good = res.json && res.json.ok;
-      rows[i].st = good ? '성공' : '실패'; rows[i].cls = good ? 'ok' : 'ng';
-      rows[i].detail = good ? (okText(res.json) + ' · 왕복 ' + res.ms + 'ms') : (hint(res) || (res.json && (res.json.message || res.json.error)) || ('HTTP ' + res.status));
-      render(rows);
-      return good;
-    }
-
-    call(url).then(function (r1) {
-      if (!done(0, r1, function (j) { return '서버 시각 ' + j.now; })) return;
-      return call(url, { action: 'ping' }).then(function (r2) {
-        if (!done(1, r2, function (j) { return '서버 처리 ' + j.serverMs + 'ms'; })) return;
-        return call(url, { action: 'dbTest', memo: '화면에서 보낸 확인 ' + new Date().toLocaleString('ko-KR') }).then(function (r3) {
-          done(2, r3, function (j) { return '시트 행 수 ' + j.rows; });
-        });
+  function loadUsers() {
+    api('listUsers', { token: token }).then(function (r) {
+      if (authLost(r)) return;
+      var box = $('userList'); box.textContent = '';
+      if (!r.ok) { adminMsg(r.message || '직원 목록을 불러오지 못했습니다.'); return; }
+      if ($('adminMsg').className.indexOf('info') >= 0 && $('adminMsg').textContent === '불러오는 중…') adminMsg('');
+      r.users.forEach(function (u) {
+        var row = el('div', 'urow'), self = u.loginId === me.loginId;
+        var nm = el('div', 'nm', u.name); nm.appendChild(el('small', '', '로그인 ID: ' + u.loginId + (self ? ' (본인)' : '')));
+        var tags = el('div', ''); tags.appendChild(el('span', 'tag' + (u.active ? '' : ' off'), u.active ? '사용중' : '중지'));
+        if (u.locked) tags.appendChild(el('span', 'tag lock', '잠김'));
+        if (u.mustChangePin) tags.appendChild(el('span', 'tag tmp', '임시PIN'));
+        var sel = el('select'); ROLES.forEach(function (rl) { var o = el('option', '', rl); if (rl === u.role) o.selected = true; sel.appendChild(o); });
+        sel.disabled = self; sel.style.marginTop = '6px'; sel.style.padding = '7px'; sel.style.fontSize = '14px';
+        sel.onchange = function () { save({ loginId: u.loginId, role: sel.value }, u.name + ' 역할을 ' + sel.value + '(으)로 바꿨습니다. 해당 직원은 다시 로그인해야 합니다.'); };
+        var mid = el('div'); mid.appendChild(tags); mid.appendChild(sel);
+        var acts = el('div', 'acts');
+        var bReset = el('button', 'sm', 'PIN 초기화');
+        bReset.onclick = function () {
+          if (!confirm(u.name + ' 님의 PIN을 초기화합니다. 새 임시 PIN이 발급되고 이 직원은 즉시 로그아웃됩니다. 계속할까요?')) return;
+          save({ loginId: u.loginId, resetPin: true }, 'PIN을 초기화했습니다.').then(function (r) { if (r && r.tempPin) showTemp(u.name, r.tempPin); });
+        };
+        acts.appendChild(bReset);
+        if (!self) {
+          var bAct = el('button', 'sm' + (u.active ? ' warn' : ''), u.active ? '사용 중지' : '사용 재개');
+          bAct.onclick = function () {
+            if (u.active && !confirm(u.name + ' 님의 계정을 중지합니다. 즉시 로그아웃되고 로그인할 수 없게 됩니다. 계속할까요?')) return;
+            save({ loginId: u.loginId, active: !u.active }, u.name + ' 계정을 ' + (u.active ? '중지' : '다시 사용') + '했습니다.');
+          };
+          acts.appendChild(bAct);
+        }
+        row.appendChild(nm); row.appendChild(mid); row.appendChild(acts); box.appendChild(row);
       });
-    }).then(function () { btn.disabled = false; });
+    });
+  }
+
+  $('btnAdd').onclick = function () {
+    var id = $('nuId').value.trim(), name = $('nuName').value.trim(), m = $('addMsg'); m.className = 'msg';
+    if (!id || !name) { m.textContent = '로그인 ID와 이름을 모두 입력해 주세요.'; return; }
+    $('btnAdd').disabled = true; m.className = 'msg info'; m.textContent = '추가 중…';
+    api('saveUser', { token: token, create: true, loginId: id, name: name, role: $('nuRole').value }).then(function (r) {
+      $('btnAdd').disabled = false;
+      if (authLost(r)) return;
+      if (!r.ok) { m.className = 'msg'; m.textContent = r.message || '추가하지 못했습니다.'; return; }
+      m.textContent = name + ' 님을 추가했습니다.'; $('nuId').value = ''; $('nuName').value = '';
+      showTemp(name, r.tempPin); loadUsers();
+    });
   };
+
+  boot();
 })();
 </script>
 </body>
