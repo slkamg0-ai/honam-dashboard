@@ -12,7 +12,7 @@
 
   function setMsg(id, text, info) { var m = $(id); m.className = 'msg' + (info ? ' info' : ''); m.textContent = text || ''; }
   function show(id, on) { $(id).classList.toggle('hide', !on); }
-  function pane(name) { show('dList', name === 'list'); show('dDetail', name === 'detail'); show('dForm', name === 'form'); window.scrollTo(0, 0); }
+  function pane(name) { show('dList', name === 'list'); show('dDetail', name === 'detail'); show('dForm', name === 'form'); window.scrollTo(0, 0); setTimeout(fitAll, 0); }
   function fail(msgId, r) { if (E.authLost(r)) return true; if (r && r.ok) return false; setMsg(msgId, (r && r.message) || '처리하지 못했습니다.'); return false; }
   function isGm() { var me = E.me(); return !!me && (me.role === '공무' || me.role === '현장소장'); }
   function isMgr() { var me = E.me(); return !!me && me.role === '현장소장'; }
@@ -40,6 +40,93 @@
     return { late: d < 0, days: d };
   }
 
+
+  // ── 갑지(A4 기안문) ──
+  var CATS = {
+    품의: [['현장품의', '현장품의 — 하도급 기성·자재 반입 검수', '[현장품의] 하도급 기성 / 자재 반입 검수 품의'], ['본사품의', '본사품의 — 본사 예산·구매·외주·경비', '[본사품의] 본사 예산·구매·외주·현장경비 발의'], ['변경품의', '변경품의 — 실정보고·설계변경 승인', '[변경품의] 현장 실정보고 및 설계변경 승인 품의']],
+    공문: [['본사문서', '본사문서 — 업무연락·현황보고·일반공문', '[본사문서] 본사 업무연락 / 현황보고 / 일반공문'], ['대관공문', '대관공문 — 감리단·국가철도공단', '[대관공문] 감리단 / 국가철도공단 대관 발신공문'], ['안전점검', '안전점검 — 작업계획서·재해예방 점검', '[안전점검] 안전관리 / 작업계획서 / 재해예방 점검 보고'], ['기타', '기타 — 대외협조·민원회신·일반', '[기타항목] 대외협조 / 민원회신 / 기타 일반문서']] };
+  var MGR_NAME = '임석인';
+  function catLong(kind, cat) { var l = CATS[kind] || []; for (var k = 0; k < l.length; k++) if (l[k][0] === cat) return l[k][2]; return ''; }
+  function mmdd(s) { s = String(s || ''); return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(5, 10).replace('-', '/') : ''; }
+  function dots(s) { var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s || '')); return m ? m[1] + '. ' + m[2] + '. ' + m[3] + '.' : ''; }
+  function ph(text) { return el('span', 'gj-ph', text); }
+  function seal(role, name) { var s = el('span', 'gj-seal'); s.appendChild(el('small', '', role)); s.appendChild(document.createTextNode(String(name || '').slice(0, 4))); return s; }
+  function gjBox(color, bg, l1, l2) { var b = el('span', 'gj-box'); b.style.color = color; b.style.background = bg; b.appendChild(document.createTextNode(l1)); if (l2) { b.appendChild(document.createElement('br')); b.appendChild(el('small', '', l2)); } return b; }
+
+  /** 저장된 문서 → 갑지에 들어갈 값 */
+  function sheetOfItem(i) {
+    return { kind: i.kind, docNo: i.docNo, date: i.date, cat: i.cat, party: i.party, title: i.title, amount: i.amount, summary: i.summary, attach: i.attach, author: i.author, status: i.status,
+      drafted: i.status === '검토대기' || i.status === '승인대기' || i.status === '확정', approver: i.status === '확정' ? i.approver : '', approvedAt: i.approvedAt,
+      hq: i.hq || {}, mgr: (i.status === '확정' && i.approver) || MGR_NAME };
+  }
+  /** 쓰는 중인 양식 → 갑지에 들어갈 값 (아직 제출 전이므로 도장은 모두 비어 있다) */
+  function sheetOfForm() {
+    var v = collect(), me = E.me();
+    return { kind: F.kind, docNo: F.docNo || ((next[F.kind] || '') + ' (예정)'), date: v.date, cat: v.cat, party: v.party, title: v.title, amount: v.amount, summary: v.summary, attach: v.attach,
+      author: F.author || (me ? me.name : ''), status: '작성중', drafted: false, approver: '', approvedAt: '', hq: {}, mgr: MGR_NAME };
+  }
+
+  function buildSheet(m) {
+    var S = el('div', 'gj-sheet');
+    S.appendChild(el('div', 'gj-site', '[현장명: 호남고속선 정읍~광주송정 등 28개소 재해예방공사]'));
+    S.appendChild(el('h2', 'gj-head', m.kind === '품의' ? '품 의 서 (기 안 문 갑 지)' : '공 문 (발 신 기 안 갑 지)'));
+    var top = el('div', 'gj-top'); S.appendChild(top);
+
+    var meta = el('table', 'gj-meta'); top.appendChild(meta);
+    function mrow(k, v) { var tr = meta.appendChild(el('tr')); tr.appendChild(el('th', '', k)); var td = tr.appendChild(el('td')); if (v) td.textContent = v; else td.appendChild(ph('-')); }
+    mrow('문서번호', m.docNo); mrow('발신일자', dots(m.date)); mrow('문서구분', m.cat ? '[' + m.cat + ']' : '');
+
+    // 결재란: 기안(작성자) · 현장소장(승인) · 본사 제출 · 부사장(=본사 확인) · 회장
+    var st = el('table', 'gj-stamp'); top.appendChild(st);
+    var r1 = st.appendChild(el('tr')), r2 = st.appendChild(el('tr')), r3 = st.appendChild(el('tr'));
+    var lab = el('th', '', '결\n재'); lab.rowSpan = 3; lab.style.width = '28px'; lab.style.whiteSpace = 'pre'; r1.appendChild(lab);
+    [['기 안', '(작성자)'], ['현장소장', '(현장대리인)'], ['본사 제출', '(제출 표시)'], ['부사장', '(본사 확인)'], ['회 장', '(본사 결재)']].forEach(function (h) {
+      var th = el('th', '', h[0]); th.appendChild(el('small', '', h[1])); r1.appendChild(th);
+    });
+    function cell(row, node, cls) { var td = row.appendChild(el('td', cls || '')); td.appendChild(node); return td; }
+    var hq = m.hq || {}, submitAt = hq.submitAt || (hq.state === '제출' ? hq.at : '');
+    // 기안
+    cell(r2, m.drafted ? seal('기안', m.author) : ph('미날인')); cell(r3, m.drafted ? document.createTextNode(mmdd(m.date)) : ph(' '), 'gj-date');
+    // 현장소장
+    if (m.approver) { cell(r2, seal('현장소장', m.approver)); cell(r3, document.createTextNode(mmdd(m.approvedAt)), 'gj-date'); }
+    else { cell(r2, ph(m.status === '승인대기' ? '승인대기' : '미날인')); cell(r3, ph(' '), 'gj-date'); }
+    // 본사 제출
+    if (submitAt) { cell(r2, gjBox('#1d4ed8', '#eff6ff', '본사제출')); cell(r3, document.createTextNode(mmdd(submitAt) + ' 제출'), 'gj-date'); }
+    else { cell(r2, ph('제출대기')); cell(r3, ph(' '), 'gj-date'); }
+    // 부사장 = 본사 확인
+    if (hq.state === '확인') { cell(r2, gjBox('#15803d', '#f0fdf4', '확인', hq.by)); cell(r3, document.createTextNode(mmdd(hq.at)), 'gj-date'); }
+    else { cell(r2, ph(hq.state === '제출' ? '회신대기' : '서명')); cell(r3, ph(' '), 'gj-date'); }
+    // 회장
+    cell(r2, ph('서명')); cell(r3, ph(' '), 'gj-date');
+
+    var body = el('table', 'gj-body'); S.appendChild(body);
+    function brow(k, sub, fill, style) {
+      var tr = body.appendChild(el('tr')); var th = tr.appendChild(el('th', '')); th.appendChild(document.createTextNode(k)); if (sub) th.appendChild(el('small', '', sub));
+      var td = tr.appendChild(el('td')); fill(td); if (style) for (var x in style) td.style[x] = style[x]; return tr;
+    }
+    function txt(v, empty) { return function (td) { if (v) td.textContent = v; else if (empty) td.appendChild(ph(empty)); }; }
+    brow('수 신 처', '', txt(m.party || (m.kind === '품의' ? '회장' : ''), '(수신처 미입력)'));
+    brow('제 목', '', txt(m.title, '(제목 미입력)'), { fontWeight: '800', fontSize: '13.5px' });
+    if (m.kind === '품의') brow('집행금액', '', txt(m.amount), { fontWeight: '700', color: '#1d4ed8', height: '28px' });
+    var sr = brow(m.kind === '품의' ? '기안요약' : '발신요약', '(표준갑지)', txt(m.summary, '(본문 요지 미입력)'), { height: '155px', verticalAlign: 'top', whiteSpace: 'pre-wrap', lineHeight: '1.65', padding: '12px' });
+    sr.firstChild.style.verticalAlign = 'top'; sr.firstChild.style.paddingTop = '14px';
+    brow(m.kind === '공문' ? '붙 임' : '붙임/첨부', '', txt(m.attach, '(없음)'), { padding: '8px 10px' });
+
+    var f = el('div', 'gj-foot', '(주)동우건설 호남고속선 재해예방공사 현장 현장소장 ' + (m.mgr || MGR_NAME)); S.appendChild(f);
+    return S;
+  }
+  /** 화면 너비에 맞춰 줄인다(숨은 화면은 건너뛴다) */
+  function fit(wrap) {
+    var S = wrap.firstChild; if (!S) return; var w = wrap.clientWidth; if (!w) return;
+    var sc = Math.min(1, w / 794); S.style.transform = 'scale(' + sc + ')'; wrap.style.height = Math.ceil(S.offsetHeight * sc) + 'px';
+  }
+  function fitAll() { var a = document.querySelectorAll('.gj-wrap'); for (var k = 0; k < a.length; k++) fit(a[k]); }
+  window.addEventListener('resize', fitAll);
+  function paintSheet(host, m) {
+    host.textContent = ''; var wrap = el('div', 'gj-wrap'); wrap.appendChild(buildSheet(m)); host.appendChild(wrap);
+    fit(wrap); setTimeout(fitAll, 0);
+  }
+
   // ── 홈 타일 배지 ──
   function refreshBadge() {
     var sub = $('tileDocSub'); if (!sub) return;
@@ -56,7 +143,7 @@
     });
   }
   E.onEnter.push(refreshBadge);
-  E.onLeave.push(function () { items = []; next = {}; F = null; filter = 'all'; query = ''; $('dItems').textContent = ''; $('dDetail').textContent = ''; $('dSum').textContent = ''; $('dSearch').value = ''; });
+  E.onLeave.push(function () { items = []; next = {}; F = null; filter = 'all'; query = ''; $('dItems').textContent = ''; $('dDetail').textContent = ''; $('dSum').textContent = ''; $('dSearch').value = ''; $('dPrev').textContent = ''; });
 
   // ── 목록 ──
   function openList() { E.showView('vDoc'); pane('list'); buildFilters(); load(); }
@@ -166,6 +253,10 @@
     if (i.hq && i.hq.state) kv(p, '본사', '본사 ' + i.hq.state + ' · ' + i.hq.by + ' · ' + String(i.hq.at).slice(0, 16) + (i.hq.state === '확인' && i.hq.submitAt ? ' (제출 ' + String(i.hq.submitAt).slice(0, 16) + ')' : '') + (i.hq.note ? ' · ' + i.hq.note : ''));
     if (i.note) kv(p, '비고', i.note);
 
+    if (i.kind !== '접수' && i.status !== '결번') {
+      var sp = el('div', 'panel'); sp.id = 'dDSheet'; box.appendChild(sp);
+      sp.appendChild(el('h3', '', '갑지 (A4 기안문)')); var host = el('div'); sp.appendChild(host); paintSheet(host, sheetOfItem(i));
+    }
     var area = el('div'); p.appendChild(area);
     var btns = el('div', 'row-btns'); area.appendChild(btns);
     var msg = el('div', 'msg'); msg.id = 'dDMsg'; p.appendChild(msg);
@@ -232,7 +323,7 @@
     공문: { party: '수신처 (필수)', summary: '본문 요지 (문서 본문에 들어갑니다)', attach: '붙임', draft: '임시저장', ph: '예: 국가철도공단 광주건설사업단' },
     접수: { party: '보낸 곳 (필수)', summary: '내용 요지', attach: '첨부', draft: '접수 등록', ph: '예: 국가철도공단' } };
   function openForm(kind, item) {
-    F = { kind: kind, id: item ? item.id : '' };
+    F = { kind: kind, id: item ? item.id : '', docNo: item ? item.docNo : '', author: item ? item.author : '' };
     var L = LABELS[kind];
     $('dFTitle').textContent = (item ? kind + ' 수정 · ' + item.docNo : kind + (kind === '접수' ? ' 등록' : ' 쓰기') + (next[kind] ? ' · ' + next[kind] : ''));
     $('dPartyL').textContent = L.party; $('dParty').placeholder = L.ph; $('dSummaryL').textContent = L.summary; $('dAttachL').textContent = L.attach;
@@ -240,9 +331,15 @@
     $('dParty').value = item ? item.party : ''; $('dTitle').value = item ? item.title : '';
     $('dRef').value = item ? item.ref : ''; $('dSummary').value = item ? item.summary : ''; $('dAttach').value = item ? item.attach : '';
     $('dDue').value = item ? item.due : ''; $('dNote').value = item ? item.note : '';
+    var cats = CATS[kind] || [], sel = $('dCat'); sel.textContent = '';
+    cats.forEach(function (c) { var o = el('option', '', c[1]); o.value = c[0]; sel.appendChild(o); });
+    sel.value = item && item.cat ? item.cat : (cats.length ? cats[0][0] : '');
+    $('dAmount').value = item ? item.amount : '';
+    show('dCatWrap', kind !== '접수'); show('dAmountWrap', kind === '품의'); show('dPrevPanel', kind !== '접수');
+    prevOpen = window.innerWidth >= 600; syncPrevToggle();
     show('dRefWrap', kind !== '접수'); show('dDueWrap', kind !== '품의'); show('dSubmit', kind !== '접수');
     $('dDraft').textContent = item && kind !== '접수' ? '저장' : L.draft;
-    setMsg('dFMsg', ''); pane('form'); setTimeout(function () { $('dTitle').focus(); }, 30);
+    setMsg('dFMsg', ''); pane('form'); drawPrev(); setTimeout(function () { $('dTitle').focus(); }, 30);
   }
   $('dNewP').onclick = function () { openForm('품의'); };
   $('dNewG').onclick = function () { openForm('공문'); };
@@ -251,7 +348,8 @@
 
   function collect() {
     return { id: F.id || undefined, kind: F.kind, date: $('dDate').value, party: $('dParty').value.trim(), title: $('dTitle').value.trim(), ref: $('dRef').value.trim(),
-      summary: $('dSummary').value, attach: $('dAttach').value.trim(), due: $('dDue').value, note: $('dNote').value.trim() };
+      summary: $('dSummary').value, attach: $('dAttach').value.trim(), due: $('dDue').value, note: $('dNote').value.trim(),
+      cat: F.kind === '접수' ? '' : $('dCat').value, amount: F.kind === '품의' ? $('dAmount').value.trim() : '' };
   }
   function check(v) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(v.date)) return '일자를 고르세요.';
@@ -279,6 +377,12 @@
       });
     });
   }
+  // ── 쓰는 대로 갑지 미리보기 ──
+  var prevOpen = true;
+  function syncPrevToggle() { $('dPrevToggle').textContent = prevOpen ? '접기' : '펼치기'; $('dPrev').classList.toggle('hide', !prevOpen); }
+  function drawPrev() { if (!F || F.kind === '접수' || !prevOpen) return; paintSheet($('dPrev'), sheetOfForm()); }
+  $('dPrevToggle').onclick = function () { prevOpen = !prevOpen; syncPrevToggle(); drawPrev(); };
+  ['input', 'change'].forEach(function (ev) { $('dForm').addEventListener(ev, function () { drawPrev(); }); });
   $('dDraft').onclick = function () { save(false); };
   $('dSubmit').onclick = function () { save(true); };
 })();

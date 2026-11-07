@@ -93,6 +93,27 @@
   .st-접수 { background: #e0f2fe; color: #075985; } .st-확정 { background: #dcfce7; color: #166534; } .st-결번 { background: #e2e8f0; color: #475569; text-decoration: line-through; } .st-hq { background: #ede9fe; color: #5b21b6; margin-right: 4px; }
   .xi .r2 .st { margin-right: 4px; }
   .kv a { color: #1d4ed8; font-weight: 700; }
+  /* 갑지(A4 기안문) 미리보기 — 794px 종이를 화면 너비에 맞춰 줄여 보여 준다 */
+  .gj-wrap { width: 100%; overflow: hidden; background: #e2e8f0; border-radius: 8px; margin-top: 8px; }
+  .gj-sheet { width: 794px; min-height: 1040px; background: #fff; padding: 40px 46px; transform-origin: top left; color: #0f172a; font-size: 12.5px; line-height: 1.45; }
+  .gj-site { text-align: center; font-size: 13px; font-weight: 700; color: #1e3a8a; margin-bottom: 4px; }
+  .gj-head { text-align: center; font-size: 25px; font-weight: 900; letter-spacing: 5px; margin: 0 0 20px; text-decoration: underline; text-underline-offset: 7px; color: #0f172a; }
+  .gj-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
+  .gj-sheet table { border-collapse: collapse; }
+  .gj-sheet th, .gj-sheet td { border: 1px solid #1e293b; padding: 6px 8px; font-size: 12.5px; }
+  .gj-sheet th { background: #f1f5f9; font-weight: 700; text-align: center; }
+  .gj-meta { width: 290px; } .gj-meta th { width: 82px; }
+  .gj-stamp th { font-size: 11.5px; padding: 4px; } .gj-stamp th small { display: block; font-size: 10px; font-weight: 500; }
+  .gj-stamp td { width: 70px; height: 68px; text-align: center; vertical-align: middle; padding: 3px; }
+  .gj-stamp td.gj-date { height: 23px; font-size: 10.5px; color: #334155; }
+  .gj-body { width: 100%; margin-top: 8px; } .gj-body th { width: 105px; }
+  .gj-body th small { display: block; font-size: 10.5px; font-weight: 400; color: #64748b; }
+  .gj-ph { color: #94a3b8; font-family: monospace; font-size: 11px; font-weight: 400; }
+  .gj-seal { width: 52px; height: 52px; border: 2.5px solid #c81e1e; border-radius: 50%; color: #c81e1e; font-weight: 900; font-size: 11px; line-height: 1.15; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; transform: rotate(-4deg); background: rgba(200,30,30,.04); box-shadow: inset 0 0 0 1px rgba(200,30,30,.25); }
+  .gj-seal small { font-size: 8.5px; font-weight: 700; }
+  .gj-box { font-size: 9.5px; font-weight: 800; line-height: 1.3; border: 2px solid; border-radius: 4px; padding: 3px 2px; display: inline-block; min-width: 54px; }
+  .gj-foot { margin-top: 22px; text-align: center; font-size: 15px; font-weight: 800; letter-spacing: 1.5px; }
+  .gj-tg { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   @media (max-width: 520px) { .urow { grid-template-columns: 1fr; } .acts { justify-content: flex-start; } .grid2 { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -288,7 +309,9 @@
             <div id="dDueWrap"><label for="dDue">회신기한 (있으면)</label><input type="date" id="dDue"></div>
           </div>
           <label for="dParty" id="dPartyL">수신</label><input type="text" id="dParty" maxlength="60" autocomplete="off">
+          <div id="dCatWrap"><label for="dCat">문서 구분</label><select id="dCat"></select></div>
           <label for="dTitle">제목 (건명)</label><input type="text" id="dTitle" maxlength="100" autocomplete="off" placeholder="예: 안전난간 추가 설치의 건">
+          <div id="dAmountWrap"><label for="dAmount">집행금액 (비용이 드는 품의만 · 없으면 비워 둡니다)</label><input type="text" id="dAmount" maxlength="40" autocomplete="off" placeholder="예: 64,200,000원 (부가세 별도)"></div>
           <div id="dRefWrap"><label for="dRef">참조</label><input type="text" id="dRef" maxlength="60" autocomplete="off"></div>
           <label for="dSummary" id="dSummaryL">본문 요지</label><textarea id="dSummary" rows="4" maxlength="2000"></textarea>
           <label for="dAttach" id="dAttachL">첨부</label><input type="text" id="dAttach" maxlength="200" autocomplete="off" placeholder="예: 견적서 1부, 실행예산서 엑셀">
@@ -296,6 +319,10 @@
           <div class="row-btns"><button type="button" id="dDraft">임시저장</button><button type="button" class="pri" id="dSubmit" style="margin-top:0">저장하고 제출</button></div>
           <button type="button" id="dCancel" style="width:100%;margin-top:8px">취소</button>
           <div class="msg" id="dFMsg"></div>
+        </div>
+        <div class="panel" id="dPrevPanel">
+          <div class="gj-tg"><h3 style="margin:0">갑지 미리보기 <span style="font-weight:500;font-size:12px;color:#64748b">(쓰는 대로 바뀝니다)</span></h3><button type="button" class="sm" id="dPrevToggle">접기</button></div>
+          <div id="dPrev"></div>
         </div>
       </div>
     </div>
