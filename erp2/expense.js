@@ -1,4 +1,4 @@
-/* HN28 현장 ERP v2 — 2단계: 경비 입력·검토·승인 화면
+/* HN28 현장 ERP v2 — 2단계: 경비 입력·검토·승인 화면 (3단계: 마감된 달의 누락분 확인 포함)
  * index.html 이 열어 둔 window.ERP2(api·me·showView 등)만 쓴다. 서버가 보낸 글자는 모두 textContent 로만 넣는다. */
 (function () {
   'use strict';
@@ -8,6 +8,7 @@
   var month = '';          // 보고 있는 달 (YYYY-MM)
   var filter = 'all';      // all | mine | queue
   var items = [];
+  var closedList = [];     // 서버가 알려 주는 마감된 달
   var F = null;            // 작성 중인 양식 상태
   var busy = false;
 
@@ -86,7 +87,7 @@
     E.api('listExpenses', req, 25000).then(function (r) {
       if (E.authLost(r)) return;
       if (!r.ok) { items = []; render(); setMsg('xMsg', r.message || '목록을 불러오지 못했습니다.'); return; }
-      items = r.items; setMsg('xMsg', ''); render();
+      items = r.items; closedList = r.closed || []; setMsg('xMsg', ''); render();
     });
   }
 
@@ -99,13 +100,15 @@
     var head = filter === 'queue' ? '결재 대기 ' + list.length + '건' : (month.replace('-', '년 ') + '월 · ' + list.length + '건');
     sum.appendChild(document.createTextNode(head + ' · 합계 ' + won(all) + ' (반려 제외)'));
     if (filter !== 'queue') { sum.appendChild(document.createElement('br')); sum.appendChild(document.createTextNode('승인 완료 ' + won(done) + (cnt['반려'] ? ' · 반려 ' + cnt['반려'] + '건' : ''))); }
+    var cl = filter !== 'queue' ? closedList.filter(function (c) { return c.ym === month; })[0] : null;
+    if (cl) { sum.appendChild(document.createElement('br')); sum.appendChild(document.createTextNode('이 달은 마감되었습니다 (' + cl.by + ', ' + cl.at.slice(0, 16) + '). 늦게 나온 영수증은 누락분으로 다음 달에 청구합니다.')); }
     var box = $('xItems'); box.textContent = '';
     if (!list.length) { box.appendChild(el('div', 'desc', filter === 'queue' ? '결재를 기다리는 경비가 없습니다.' : '이 달에 등록된 경비가 없습니다.')); return; }
     list.forEach(function (i) {
       var c = el('div', 'xi'); c.tabIndex = 0; c.setAttribute('role', 'button');
       var r1 = el('div', 'r1'); r1.appendChild(el('span', '', i.vendor)); r1.appendChild(el('span', '', won(i.total)));
       var r2 = el('div', 'r2');
-      r2.appendChild(el('span', 'st st-' + i.status, i.status)); r2.appendChild(document.createTextNode(' ' + i.date.slice(5) + ' · ' + i.category.split('(')[0] + ' · ' + siteLabel(i.site) + ' · ' + i.author + (i.docNo ? ' · ' + i.docNo : '')));
+      r2.appendChild(el('span', 'st st-' + i.status, i.status)); if (i.late) r2.appendChild(el('span', 'st st-late', '누락분')); r2.appendChild(document.createTextNode(' ' + i.date.slice(5) + ' · ' + i.category.split('(')[0] + ' · ' + siteLabel(i.site) + ' · ' + i.author + (i.docNo ? ' · ' + i.docNo : '')));
       c.appendChild(r1); c.appendChild(r2);
       c.onclick = function () { showDetail(i); };
       c.onkeydown = function (ev) { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); showDetail(i); } };
@@ -116,6 +119,17 @@
   // ── 상세 ──
   function kv(box, k, v) { var g = box.querySelector('.kv') || box.appendChild(el('div', 'kv')); g.appendChild(el('b', '', k)); g.appendChild(el('span', '', v)); }
 
+  /** 제출. 마감된 달 날짜면 서버가 누락분 청구월을 알려 주고, 확인하면 그 달로 다시 제출한다. */
+  function submitAsk(id) {
+    return E.api('submitExpense', { id: id }, 30000).then(function (r) {
+      if (r && r.error === 'LATE') {
+        if (confirm(r.message)) return E.api('submitExpense', { id: id, lateOk: r.claimMonth }, 30000);
+        return { ok: false, error: 'CANCEL', message: '제출하지 않았습니다. 마감된 달의 경비는 누락분으로 올릴 때만 제출됩니다.' };
+      }
+      return r;
+    });
+  }
+
   function showDetail(i) {
     var me = E.me(), mine = i.authorId === me.loginId;
     var box = $('xDetail'); box.textContent = ''; pane('detail');
@@ -125,6 +139,7 @@
     if (i.status === '반려' && i.reason) p.appendChild(el('div', 'rej', '반려 사유: ' + i.reason + (i.reviewer || i.approver ? '  (' + (i.approver || i.reviewer) + ')' : '')));
     kv(p, '사용일', i.date); kv(p, '사용처', i.vendor); kv(p, '적요', i.memo); kv(p, '합계', won(i.total));
     kv(p, '공급가 / 부가세', won(i.supply) + ' / ' + won(i.vat)); kv(p, '비목', i.category); kv(p, '예산 항목', i.budget); kv(p, '개소', siteLabel(i.site)); kv(p, '결제수단', i.pay);
+    if (i.late) kv(p, '청구월', i.claimMonth + ' (누락분 · 사용일 ' + i.date.slice(0, 7) + '은 마감됨)');
     kv(p, '작성', i.author + ' · ' + i.created);
     if (i.reviewer) kv(p, '검토', i.reviewer + ' · ' + i.reviewedAt);
     if (i.approver && i.status === '승인') kv(p, '승인', i.approver + ' · ' + i.approvedAt);
@@ -148,9 +163,13 @@
     var btns = el('div', 'row-btns'); p.appendChild(btns);
     var msg = el('div', 'msg'); msg.id = 'dMsg'; p.appendChild(msg);
     function btn(text, cls, fn) { var x = el('button', cls || '', text); x.type = 'button'; x.onclick = fn; btns.appendChild(x); return x; }
+    function callApi(action, data) {
+      if (action !== 'submitExpense') return E.api(action, data, 30000);
+      return submitAsk(data.id);
+    }
     function act(action, data, okText) {
       if (busy) return; busy = true; setMsg('dMsg', '처리 중…', true);
-      E.api(action, data, 30000).then(function (r) {
+      callApi(action, data).then(function (r) {
         busy = false;
         if (fail('dMsg', r)) return;
         if (!r.ok) return;
@@ -297,7 +316,7 @@
       }
       var saved = r.item; F = null;
       if (!submit) { done(); showDetail(saved); setMsg('dMsg', '임시저장했습니다. 제출하면 검토 단계로 넘어갑니다.', true); return; }
-      E.api('submitExpense', { id: saved.id }, 30000).then(function (s) {
+      submitAsk(saved.id).then(function (s) {
         done(); if (E.authLost(s)) return;
         if (!s.ok) { showDetail(saved); setMsg('dMsg', '저장은 했지만 제출하지 못했습니다: ' + (s.message || ''), false); return; }
         showDetail(s.item); setMsg('dMsg', '제출했습니다. ' + (s.item.status === '승인대기' ? '현장소장 승인을 기다립니다.' : '공무 검토를 기다립니다.'), true);

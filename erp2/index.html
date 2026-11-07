@@ -60,7 +60,16 @@
   .xi .r2 { font-size: 12px; color: #64748b; margin-top: 3px; line-height: 1.5; }
   .st { display: inline-block; font-size: 11px; font-weight: 800; padding: 2px 8px; border-radius: 9px; white-space: nowrap; }
   .st-작성중 { background: #f1f5f9; color: #475569; } .st-검토대기 { background: #fef3c7; color: #92400e; } .st-승인대기 { background: #dbeafe; color: #1e40af; }
-  .st-승인 { background: #dcfce7; color: #166534; } .st-반려 { background: #fee2e2; color: #991b1b; }
+  .st-승인 { background: #dcfce7; color: #166534; } .st-반려 { background: #fee2e2; color: #991b1b; } .st-late { background: #ede9fe; color: #5b21b6; margin-right: 4px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 8px 0; }
+  .cards > div { background: #f8fafc; border-radius: 10px; padding: 10px 12px; }
+  .cards .l { font-size: 11.5px; color: #64748b; font-weight: 700; }
+  .cards .v { font-size: 17px; font-weight: 800; margin-top: 2px; }
+  .cards .s { font-size: 11.5px; color: #64748b; margin-top: 2px; }
+  .ck { border-left: 4px solid #cbd5e1; background: #f8fafc; border-radius: 6px; padding: 8px 10px; margin: 6px 0; }
+  .ck .t { font-size: 13.5px; font-weight: 800; } .ck .d { font-size: 12.5px; color: #475569; margin-top: 2px; line-height: 1.5; }
+  .ck.k-ok { border-color: #16a34a; } .ck.k-warn { border-color: #f59e0b; background: #fffbeb; } .ck.k-bad { border-color: #dc2626; background: #fef2f2; } .ck.k-info { border-color: #3b82f6; }
+  .lockline { background: #f1f5f9; color: #334155; border-radius: 8px; padding: 8px 10px; font-size: 13px; margin: 8px 0; }
   .kv { display: grid; grid-template-columns: 92px 1fr; gap: 4px 10px; font-size: 13.5px; margin: 8px 0; }
   .kv b { color: #475569; font-weight: 700; }
   .kv span { word-break: break-all; }
@@ -132,12 +141,12 @@
     <div id="vHome">
       <div class="panel">
         <h3>현장 ERP v2</h3>
-        <p class="desc">로그인·직원 관리·경비 입력까지 열렸습니다. 나머지 기능은 순서대로 열립니다.</p>
+        <p class="desc">로그인·직원 관리·경비 입력·월 마감까지 열렸습니다. 나머지 기능은 순서대로 열립니다.</p>
         <div class="tiles">
           <button type="button" class="tile on" id="tileExp">경비 입력<small id="tileExpSub">영수증 등록 · 검토 · 승인</small></button>
           <div class="tile">전자결재<small>예정</small></div>
           <div class="tile">작업일보<small>예정</small></div>
-          <div class="tile">월 마감<small>예정</small></div>
+          <button type="button" class="tile on" id="tileClose">월 마감<small id="tileCloseSub">점검 · 마감 · 본사 제출 엑셀</small></button>
         </div>
       </div>
     </div>
@@ -182,6 +191,23 @@
           <button type="button" id="fCancel" style="width:100%;margin-top:8px">취소</button>
           <div class="msg" id="fMsg"></div>
         </div>
+      </div>
+    </div>
+
+    <div id="vClose" class="hide">
+      <div class="panel">
+        <h3>월 마감 <button class="sm" id="cBack" style="float:right">돌아가기</button></h3>
+        <div class="xbar"><button class="sm" id="cPrev">◀</button><input type="month" id="cMonth"><button class="sm" id="cNext">▶</button><button class="sm" id="cThis">이번 달</button></div>
+        <div class="lockline hide" id="cLock"></div>
+        <div class="cards" id="cSummary"></div>
+        <div id="cChecks"></div>
+        <div class="row-btns">
+          <button type="button" class="pri" id="cExport" style="margin-top:0">본사 제출 엑셀 만들기 (.xlsx)</button>
+          <button type="button" class="warn hide" id="cClose">이 달 마감하기</button>
+          <button type="button" class="hide" id="cReopen">마감 해제</button>
+        </div>
+        <div class="msg" id="cMsg"></div>
+        <p class="desc">엑셀에는 지불요청서(갑지)·경비상세·비목별 실행예산 대비·개소별·마감점검 5장이 들어 있고, 승인된 경비만 담깁니다. 마감 전에 만들면 파일 이름에 「마감전」이 붙습니다. 작업일보(투입내역)는 작업일보 기능이 열리면 추가됩니다.</p>
       </div>
     </div>
 
@@ -244,7 +270,7 @@
   }
 
   // ── 다른 파일(expense.js)이 쓰는 연결 지점 ──
-  var VIEWS = ['vHome', 'vAdmin', 'vExp'];
+  var VIEWS = ['vHome', 'vAdmin', 'vExp', 'vClose'];
   window.ERP2 = {
     $: $, el: function (tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; },
     api: function (action, data, ms) { var d = data || {}; d.token = token; return api(action, d, ms); },
@@ -418,5 +444,7 @@
 })();
 </script>
 <script src="expense.js"></script>
+<script src="export.js"></script>
+<script src="close.js"></script>
 </body>
 </html>
