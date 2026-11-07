@@ -1,5 +1,5 @@
 /**
- * HN28 현장 ERP v2 — 서버 (Apps Script)  1단계 로그인·직원 관리 / 2단계 경비 입력·결재·문서번호·영수증 / 3단계 월 마감·누락분
+ * HN28 현장 ERP v2 — 서버 (Apps Script)  1단계 로그인·직원 관리 / 2단계 경비 입력·결재·문서번호·영수증 / 3단계 월 마감·누락분 / 4단계 작업일보
  *
  * 화면(GitHub Pages)이 보낸 요청에 JSON으로 답한다. 데이터는 구글 시트(HN28_ERP_DB)에만 둔다.
  *  - 모든 요청은 POST(text/plain, JSON 본문). GET 은 ping 만 허용한다(주소창에 PIN 이 남지 않게).
@@ -20,6 +20,7 @@ const MANAGER_ROLE = '현장소장';
 const SHEET_EXP = '경비';
 const SHEET_SEQ = '번호';
 const SHEET_CLOSE = '마감';
+const SHEET_OPS = '작업일보';
 const SESSION_TTL_SEC = 21600; // 6시간 (CacheService 최대)
 const MAX_FAILS = 5;
 const LOCK_MIN = 15;
@@ -39,7 +40,7 @@ function setup() {
   const ss = getDb_();
   const sh = ensureUsersSheet_(ss);
   ensureSheet_(ss, SHEET_AUDIT, ['시각', '로그인ID', '동작', '결과']);
-  ensureExpSheet_(ss); ensureSheet_(ss, SHEET_SEQ, ['키', '마지막번호']); ensureCloseSheet_(ss);
+  ensureExpSheet_(ss); ensureSheet_(ss, SHEET_SEQ, ['키', '마지막번호']); ensureCloseSheet_(ss); ensureOpsSheet_(ss);
   receiptRoot_(); // 영수증 폴더를 만들면서 드라이브 권한 승인을 받는다
   const rows = readUsers_(sh);
   const made = [];
@@ -73,7 +74,7 @@ function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.3' }; }
+function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.4' }; }
 
 function route_(req) {
   const t0 = Date.now();
@@ -97,6 +98,11 @@ function route_(req) {
       case 'getReceipt': out = getReceipt_(req); break;
       case 'closeMonth': out = closeMonth_(req); break;
       case 'reopenMonth': out = reopenMonth_(req); break;
+      case 'listOps': out = listOps_(req); break;
+      case 'saveOps': out = saveOps_(req); break;
+      case 'submitOps': out = submitOps_(req); break;
+      case 'confirmOps': out = confirmOps_(req); break;
+      case 'deleteOps': out = deleteOps_(req); break;
       default: out = fail_('UNKNOWN_ACTION', '알 수 없는 요청입니다.');
     }
   } catch (err) {
@@ -446,7 +452,8 @@ function getMaster_(req) {
   const g = expAuth_(req); if (g.err) return g.err;
   return {
     ok: true, categories: EXP_CATEGORIES, payMethods: EXP_PAY, budgetItems: EXP_BUDGET, catBudget: EXP_CAT_BUDGET, defaultBudget: EXP_DEFAULT_BUDGET,
-    sites: SITES.map(function (r) { return { no: r[0], code: r[1], route: r[2], location: r[3], work: r[4] }; }),
+    sites: SITES.map(function (r) { const p = OPS_PLAN[r[0]] || ['', '']; return { no: r[0], code: r[1], route: r[2], location: r[3], work: r[4], planStart: p[0], planEnd: p[1] }; }),
+    holidays: OPS_HOLIDAYS, opsWeather: OPS_WEATHER, opsKinds: OPS_KINDS,
     execBudget: EXEC_BUDGET, closed: closedMonths_(), manager: siteManagerName_(),
     maxReceipts: MAX_RECEIPTS, today: nowStr_().slice(0, 10)
   };
@@ -837,6 +844,325 @@ function deleteExpense_(req) {
     o.status = ST.DEL;
     expWrite_(sh, o, o._row);
     audit_(me.id, '경비삭제', o.docNo || o.id);
+    return { ok: true };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ───────────────────────────── 4단계: 작업일보 ─────────────────────────────
+// 개소별 계획 착수·완료(11.04 예정공정표 기준: 협업/master/개소_마스터.csv). 예정공정표를 다시 세우면 이 표만 고친다.
+const OPS_PLAN = {
+  27: ["2026-11-13", "2027-01-04"],
+  26: ["2027-01-06", "2027-02-01"],
+  1: ["2027-01-26", "2027-02-20"],
+  2: ["2027-02-16", "2027-03-06"],
+  3: ["2027-03-02", "2027-03-19"],
+  4: ["2027-03-15", "2027-03-30"],
+  5: ["2027-03-26", "2027-04-10"],
+  6: ["2027-04-06", "2027-04-26"],
+  7: ["2027-04-21", "2027-05-07"],
+  8: ["2027-05-08", "2027-05-19"],
+  9: ["2027-05-14", "2027-06-03"],
+  10: ["2027-05-31", "2027-06-29"],
+  11: ["2027-06-30", "2027-07-29"],
+  12: ["2027-07-31", "2027-08-31"],
+  13: ["2027-09-01", "2027-09-22"],
+  14: ["2027-09-24", "2027-10-07"],
+  15: ["2027-10-08", "2027-10-28"],
+  16: ["2027-10-21", "2027-11-12"],
+  17: ["2027-11-08", "2027-12-18"],
+  18: ["2027-12-09", "2027-12-29"],
+  19: ["2027-12-30", "2028-01-14"],
+  20: ["2028-01-17", "2028-02-11"],
+  21: ["2028-02-05", "2028-03-23"],
+  22: ["2028-02-17", "2028-03-03"],
+  23: ["2028-02-28", "2028-04-01"],
+  25: ["2028-03-28", "2028-04-14"]
+};
+// 휴무일(일요일·법정공휴일·명절중지, 11.04 예정공정표 기준). [날짜, 구분]
+const OPS_HOLIDAYS = [
+  ["2026-11-08", "일요일"], ["2026-11-15", "일요일"], ["2026-11-22", "일요일"], ["2026-11-29", "일요일"], ["2026-12-06", "일요일"], ["2026-12-13", "일요일"],
+  ["2026-12-20", "일요일"], ["2026-12-25", "법정공휴일"], ["2026-12-27", "일요일"], ["2027-01-01", "법정공휴일"], ["2027-01-03", "일요일"], ["2027-01-10", "일요일"],
+  ["2027-01-17", "일요일"], ["2027-01-24", "일요일"], ["2027-01-31", "일요일"], ["2027-02-03", "명절중지"], ["2027-02-04", "명절중지"], ["2027-02-05", "명절중지"],
+  ["2027-02-06", "법정공휴일"], ["2027-02-07", "법정공휴일"], ["2027-02-08", "법정공휴일"], ["2027-02-09", "법정공휴일"], ["2027-02-10", "명절중지"], ["2027-02-11", "명절중지"],
+  ["2027-02-12", "명절중지"], ["2027-02-14", "일요일"], ["2027-02-21", "일요일"], ["2027-02-28", "일요일"], ["2027-03-01", "법정공휴일"], ["2027-03-07", "일요일"],
+  ["2027-03-14", "일요일"], ["2027-03-21", "일요일"], ["2027-03-28", "일요일"], ["2027-04-04", "일요일"], ["2027-04-11", "일요일"], ["2027-04-18", "일요일"],
+  ["2027-04-25", "일요일"], ["2027-05-01", "법정공휴일"], ["2027-05-02", "일요일"], ["2027-05-03", "법정공휴일"], ["2027-05-05", "법정공휴일"], ["2027-05-09", "일요일"],
+  ["2027-05-13", "법정공휴일"], ["2027-05-16", "일요일"], ["2027-05-23", "일요일"], ["2027-05-30", "일요일"], ["2027-06-06", "법정공휴일"], ["2027-06-13", "일요일"],
+  ["2027-06-20", "일요일"], ["2027-06-27", "일요일"], ["2027-07-04", "일요일"], ["2027-07-11", "일요일"], ["2027-07-17", "법정공휴일"], ["2027-07-18", "일요일"],
+  ["2027-07-19", "법정공휴일"], ["2027-07-25", "일요일"], ["2027-08-01", "일요일"], ["2027-08-08", "일요일"], ["2027-08-15", "법정공휴일"], ["2027-08-16", "법정공휴일"],
+  ["2027-08-22", "일요일"], ["2027-08-29", "일요일"], ["2027-09-05", "일요일"], ["2027-09-11", "명절중지"], ["2027-09-12", "명절중지"], ["2027-09-13", "명절중지"],
+  ["2027-09-14", "법정공휴일"], ["2027-09-15", "법정공휴일"], ["2027-09-16", "법정공휴일"], ["2027-09-17", "명절중지"], ["2027-09-18", "명절중지"], ["2027-09-19", "명절중지"],
+  ["2027-09-26", "일요일"], ["2027-10-03", "법정공휴일"], ["2027-10-04", "법정공휴일"], ["2027-10-09", "법정공휴일"], ["2027-10-10", "일요일"], ["2027-10-11", "법정공휴일"],
+  ["2027-10-17", "일요일"], ["2027-10-24", "일요일"], ["2027-10-31", "일요일"], ["2027-11-07", "일요일"], ["2027-11-14", "일요일"], ["2027-11-21", "일요일"],
+  ["2027-11-28", "일요일"], ["2027-12-05", "일요일"], ["2027-12-12", "일요일"], ["2027-12-19", "일요일"], ["2027-12-25", "법정공휴일"], ["2027-12-26", "일요일"],
+  ["2027-12-27", "법정공휴일"], ["2028-01-01", "법정공휴일"], ["2028-01-02", "일요일"], ["2028-01-09", "일요일"], ["2028-01-16", "일요일"], ["2028-01-23", "명절중지"],
+  ["2028-01-24", "명절중지"], ["2028-01-25", "명절중지"], ["2028-01-26", "법정공휴일"], ["2028-01-27", "법정공휴일"], ["2028-01-28", "법정공휴일"], ["2028-01-29", "명절중지"],
+  ["2028-01-30", "명절중지"], ["2028-01-31", "명절중지"], ["2028-02-06", "일요일"], ["2028-02-13", "일요일"], ["2028-02-20", "일요일"], ["2028-02-27", "일요일"],
+  ["2028-03-01", "법정공휴일"], ["2028-03-05", "일요일"], ["2028-03-12", "일요일"], ["2028-03-19", "일요일"], ["2028-03-26", "일요일"], ["2028-04-02", "일요일"],
+  ["2028-04-09", "일요일"], ["2028-04-12", "법정공휴일"], ["2028-04-16", "일요일"], ["2028-04-23", "일요일"], ["2028-04-30", "일요일"], ["2028-05-01", "법정공휴일"],
+  ["2028-05-02", "법정공휴일"], ["2028-05-05", "법정공휴일"], ["2028-05-07", "일요일"], ["2028-05-14", "일요일"], ["2028-05-21", "일요일"], ["2028-05-28", "일요일"]
+];
+const OPS_WEATHER = ['맑음', '구름조금', '흐림', '비', '눈', '강풍·한파'];
+const OPS_KINDS = ['계획', '선행', '지연만회', '추가', '변경'];
+const OST = { DRAFT: '작성중', WAIT: '확인대기', DONE: '확인완료', REJECT: '반려', DEL: '삭제' };
+const OPS_FIELDS = [['id', 'ID'], ['docNo', '일보번호'], ['date', '작업일'], ['weather', '날씨'], ['site', '개소'], ['kind', '구분'], ['progress', '누계진행률'], ['offReason', '계획외사유'],
+  ['staff', '직원'], ['worker', '기능공·일용'], ['safety', '열차감시원·신호수'], ['equip', '장비·자재'], ['memo', '작업내용'], ['authorId', '작성자ID'], ['author', '작성자'],
+  ['status', '상태'], ['confirmer', '확인자'], ['confirmedAt', '확인일시'], ['reason', '반려사유'], ['created', '작성일시'], ['updated', '수정일시']];
+const OPS_HEADERS = OPS_FIELDS.map(function (f) { return f[1]; });
+
+function ensureOpsSheet_(ss) {
+  let sh = ss.getSheetByName(SHEET_OPS);
+  if (!sh) {
+    sh = ss.insertSheet(SHEET_OPS);
+    sh.getRange(1, 1, sh.getMaxRows(), OPS_HEADERS.length).setNumberFormat('@');
+    sh.getRange(1, 1, 1, OPS_HEADERS.length).setValues([OPS_HEADERS]);
+  }
+  return sh;
+}
+
+function opsRows_(sh) {
+  const last = sh.getLastRow();
+  if (last < 2) return [];
+  return sh.getRange(2, 1, last - 1, OPS_HEADERS.length).getValues().map(function (r, i) {
+    const o = { _row: i + 2 };
+    OPS_FIELDS.forEach(function (f, k) { o[f[0]] = r[k] === null || r[k] === undefined ? '' : String(r[k]); });
+    return o;
+  });
+}
+
+function opsWrite_(sh, o, rowNo) {
+  o.updated = nowStr_();
+  const arr = OPS_FIELDS.map(function (f) { return o[f[0]] === undefined || o[f[0]] === null ? '' : String(o[f[0]]); });
+  const row = rowNo || (sh.getLastRow() + 1);
+  sh.getRange(row, 1, 1, OPS_HEADERS.length).setNumberFormat('@');
+  sh.getRange(row, 1, 1, OPS_HEADERS.length).setValues([arr]);
+  o._row = row;
+}
+
+function opsFind_(sh, id) {
+  const rows = opsRows_(sh);
+  for (let i = 0; i < rows.length; i++) if (rows[i].id === id && rows[i].status !== OST.DEL) return rows[i];
+  return null;
+}
+
+function opsPublic_(o) {
+  const staff = Number(o.staff) || 0, worker = Number(o.worker) || 0, safety = Number(o.safety) || 0;
+  return {
+    id: o.id, docNo: o.docNo, date: o.date, weather: o.weather, site: Number(o.site) || 0, kind: o.kind, progress: o.progress === '' ? null : Number(o.progress), offReason: o.offReason,
+    staff: staff, worker: worker, safety: safety, people: staff + worker + safety, equip: o.equip, memo: o.memo, authorId: o.authorId, author: o.author, status: o.status,
+    confirmer: o.confirmer, confirmedAt: o.confirmedAt, reason: o.reason, created: o.created, updated: o.updated
+  };
+}
+
+/** 계획 대비 위치: 휴무일 이름(없으면 ''), 계획 기간 안(in)·앞(before)·뒤(after)·개소 없음(common) */
+function opsJudge_(date, site) {
+  let hol = '';
+  for (let i = 0; i < OPS_HOLIDAYS.length; i++) if (OPS_HOLIDAYS[i][0] === date) { hol = OPS_HOLIDAYS[i][1]; break; }
+  const p = site ? OPS_PLAN[site] : null;
+  const pos = p ? (date < p[0] ? 'before' : date > p[1] ? 'after' : 'in') : 'common';
+  return { hol: hol, pos: pos };
+}
+
+/** 계획 밖 사유가 필요한 이유 목록(없으면 빈 배열). 화면도 같은 규칙을 쓴다. */
+function opsOffPlanWhy_(date, site, kind) {
+  const j = opsJudge_(date, site), why = [];
+  if (j.hol) why.push(j.hol + ' 작업');
+  if (j.pos === 'before') why.push('계획 착수일보다 앞선 작업');
+  if (j.pos === 'after') why.push('계획 완료일보다 늦은 작업');
+  if (kind !== '계획') why.push('구분이 「' + kind + '」');
+  return why;
+}
+
+function opsCount_(v, name) {
+  const n = (v === undefined || v === null || v === '') ? 0 : intOrNull_(v);
+  if (n === null || n < 0 || n > 999) return { err: fail_('PARAM', name + ' 인원은 0명 이상 999명 이하의 숫자로 입력해 주세요.') };
+  return { n: n };
+}
+
+/** 작업일보 입력 확인. 문제가 있으면 {err}, 없으면 {v}. */
+function opsValidate_(p) {
+  const v = {};
+  v.date = cleanText_(p.date, 10);
+  if (!validDate_(v.date)) return { err: fail_('PARAM', '작업일을 올바르게 입력해 주세요.') };
+  if (v.date > nowStr_().slice(0, 10)) return { err: fail_('PARAM', '오늘 이후 날짜의 작업일보는 쓸 수 없습니다.') };
+  if (v.date < '2026-01-01') return { err: fail_('PARAM', '작업일이 너무 오래되었습니다. 날짜를 확인해 주세요.') };
+  v.weather = String(p.weather || '');
+  if (OPS_WEATHER.indexOf(v.weather) < 0) return { err: fail_('PARAM', '날씨를 선택해 주세요.') };
+  const site = intOrNull_(p.site === undefined || p.site === '' ? 0 : p.site);
+  if (site === null || (site !== 0 && !SITES.some(function (r) { return r[0] === site; }))) return { err: fail_('PARAM', '개소를 선택해 주세요. (개소 없는 일은 「공통」)') };
+  v.site = site;
+  v.kind = String(p.kind || '계획');
+  if (OPS_KINDS.indexOf(v.kind) < 0) return { err: fail_('PARAM', '작업 구분을 선택해 주세요.') };
+  const a = opsCount_(p.staff, '직원·관리자'); if (a.err) return a;
+  const b = opsCount_(p.worker, '기능공·일용직'); if (b.err) return b;
+  const c = opsCount_(p.safety, '열차감시원·신호수'); if (c.err) return c;
+  v.staff = a.n; v.worker = b.n; v.safety = c.n;
+  if (v.site) {
+    const pg = intOrNull_(p.progress);
+    if (pg === null || pg < 0 || pg > 100) return { err: fail_('PARAM', '누계 진행률은 0~100 사이의 정수(%)로 입력해 주세요.') };
+    v.progress = pg;
+  } else v.progress = '';
+  v.equip = cleanText_(p.equip, 120);
+  v.memo = cleanText_(p.memo, 300);
+  if (v.memo.length < 2) return { err: fail_('PARAM', '금일 작업내용을 입력해 주세요. (작업이 없었다면 그 사유)') };
+  const why = opsOffPlanWhy_(v.date, v.site, v.kind);
+  v.offReason = cleanText_(p.offReason, 200);
+  if (why.length) { if (v.offReason.length < 2) return { err: fail_('PARAM', '계획 밖 작업입니다 (' + why.join(' · ') + '). 사유를 적어 주세요.') }; }
+  else v.offReason = '';
+  return { v: v };
+}
+
+/** 같은 개소의 이미 올라간(확인대기·확인완료) 일보와 비교해 누계 진행률이 거꾸로 가지 않는지 본다. 문제가 있으면 안내 글을 돌려준다. */
+function opsProgressProblem_(rows, o) {
+  const site = Number(o.site) || 0; if (!site || o.progress === '') return '';
+  const pg = Number(o.progress);
+  let prev = null, next = null;
+  rows.forEach(function (x) {
+    if (x.id === o.id || Number(x.site) !== site || (x.status !== OST.WAIT && x.status !== OST.DONE) || x.progress === '') return;
+    const xp = Number(x.progress);
+    if (x.date <= o.date) { if (!prev || xp > prev.p) prev = { p: xp, d: x.date }; }
+    else if (!next || xp < next.p) next = { p: xp, d: x.date };
+  });
+  if (prev && pg < prev.p) return '같은 개소의 ' + prev.d + ' 일보 누계 진행률이 ' + prev.p + '%입니다. 그보다 낮을 수 없습니다.';
+  if (next && pg > next.p) return '같은 개소의 ' + next.d + ' 일보 누계 진행률이 ' + next.p + '%입니다. 그보다 높을 수 없습니다.';
+  return '';
+}
+
+function opsClosedMsg_(ym) { return ym + '은(는) 마감된 달입니다. 현장소장이 마감을 해제해야 이 달 작업일보를 올리거나 확인할 수 있습니다.'; }
+
+function listOps_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const rows = opsRows_(ensureOpsSheet_(getDb_())).filter(function (o) { return o.status !== OST.DEL; });
+  let out;
+  if (req.queue) out = rows.filter(function (o) { return o.status === OST.WAIT; });
+  else {
+    const ym = /^\d{4}-\d{2}$/.test(String(req.month || '')) ? String(req.month) : nowStr_().slice(0, 7);
+    out = rows.filter(function (o) { return String(o.date).slice(0, 7) === ym; });
+  }
+  // 개소별 가장 최근 누계 진행률(올라간 일보 기준) — 새 일보의 기본값으로 쓴다
+  const latest = {};
+  rows.forEach(function (o) {
+    const s = Number(o.site) || 0; if (!s || o.progress === '' || (o.status !== OST.WAIT && o.status !== OST.DONE)) return;
+    const cur = latest[s];
+    if (!cur || o.date > cur.date || (o.date === cur.date && Number(o.progress) > cur.pct)) latest[s] = { date: o.date, pct: Number(o.progress) };
+  });
+  out.sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : (a.id < b.id ? 1 : -1); });
+  return { ok: true, items: out.map(opsPublic_), closed: closedMonths_(), latest: latest };
+}
+
+function saveOps_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s;
+  const chk = opsValidate_(req); if (chk.err) return chk.err;
+  const v = chk.v;
+  if (isClosed_(closedMonths_(), v.date.slice(0, 7))) return fail_('CLOSED', opsClosedMsg_(v.date.slice(0, 7)));
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const sh = ensureOpsSheet_(getDb_());
+    const rows = opsRows_(sh);
+    let o = null;
+    if (req.id) {
+      o = null; for (let i = 0; i < rows.length; i++) if (rows[i].id === String(req.id) && rows[i].status !== OST.DEL) o = rows[i];
+      if (!o) return fail_('NOT_FOUND', '없는 작업일보입니다.');
+      if (o.authorId !== me.id) return fail_('FORBIDDEN', '본인이 쓴 작업일보만 고칠 수 있습니다.');
+      if (o.status !== OST.DRAFT && o.status !== OST.REJECT) return fail_('STATE', '이미 제출된 작업일보는 고칠 수 없습니다. 반려된 뒤에 고칠 수 있습니다.');
+    }
+    if (!req.force && v.site) {
+      const dup = rows.filter(function (x) { return (!o || x.id !== o.id) && x.date === v.date && Number(x.site) === v.site && (x.status === OST.DRAFT || x.status === OST.WAIT || x.status === OST.DONE); });
+      if (dup.length) return fail_('DUP', v.date + ' 같은 개소의 작업일보가 이미 있습니다. (' + (dup[0].docNo || dup[0].id) + ' · ' + dup[0].author + ') 그래도 저장하려면 확인해 주세요.', { dup: dup.map(function (x) { return x.docNo || x.id; }) });
+    }
+    if (!o) {
+      const ym = nowStr_().slice(0, 7).replace('-', '');
+      o = { id: 'OPS-' + ym + '-' + pad_(nextSeq_('OPS:' + ym), 4), docNo: '', status: OST.DRAFT, authorId: me.id, author: me.name, confirmer: '', confirmedAt: '', reason: '', created: nowStr_() };
+    }
+    o.date = v.date; o.weather = v.weather; o.site = String(v.site); o.kind = v.kind; o.progress = String(v.progress); o.offReason = v.offReason;
+    o.staff = String(v.staff); o.worker = String(v.worker); o.safety = String(v.safety); o.equip = v.equip; o.memo = v.memo;
+    const isNew = !o._row;
+    opsWrite_(sh, o, o._row);
+    audit_(me.id, isNew ? '일보작성' : '일보수정', o.id + (o.docNo ? ' / ' + o.docNo : ''));
+    return { ok: true, item: opsPublic_(o) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function submitOps_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const sh = ensureOpsSheet_(getDb_());
+    const rows = opsRows_(sh);
+    let o = null; for (let i = 0; i < rows.length; i++) if (rows[i].id === String(req.id || '') && rows[i].status !== OST.DEL) o = rows[i];
+    if (!o) return fail_('NOT_FOUND', '없는 작업일보입니다.');
+    if (o.authorId !== me.id) return fail_('FORBIDDEN', '본인이 쓴 작업일보만 제출할 수 있습니다.');
+    if (o.status !== OST.DRAFT && o.status !== OST.REJECT) return fail_('STATE', '이미 제출된 작업일보입니다.');
+    if (isClosed_(closedMonths_(), o.date.slice(0, 7))) return fail_('CLOSED', opsClosedMsg_(o.date.slice(0, 7)));
+    const pp = opsProgressProblem_(rows, o); if (pp) return fail_('PROGRESS', pp);
+    if (!o.docNo) o.docNo = nextDocNo_('일보');
+    o.reason = ''; o.confirmer = ''; o.confirmedAt = '';
+    o.status = OST.WAIT;
+    opsWrite_(sh, o, o._row);
+    audit_(me.id, '일보제출', o.docNo);
+    return { ok: true, item: opsPublic_(o) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** 확인(공무·현장소장, 작성자 본인 제외) 또는 반려. 현장소장은 이미 확인한 일보도 마감 전이면 사유를 적어 되돌릴 수 있다. */
+function confirmOps_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s;
+  if (me.role !== '공무' && me.role !== MANAGER_ROLE) return fail_('FORBIDDEN', '공무 또는 현장소장만 확인할 수 있습니다.');
+  const reason = cleanText_(req.reason, 200);
+  const ok = req.decision === 'ok';
+  if (!ok && reason.length < 2) return fail_('PARAM', '반려 사유를 적어 주세요.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const sh = ensureOpsSheet_(getDb_());
+    const rows = opsRows_(sh);
+    let o = null; for (let i = 0; i < rows.length; i++) if (rows[i].id === String(req.id || '') && rows[i].status !== OST.DEL) o = rows[i];
+    if (!o) return fail_('NOT_FOUND', '없는 작업일보입니다.');
+    const ym = o.date.slice(0, 7);
+    if (o.status === OST.DONE) { // 확인 취소(되돌리기)
+      if (ok || me.role !== MANAGER_ROLE) return fail_('STATE', '확인 대기 중인 작업일보가 아닙니다.');
+      if (isClosed_(closedMonths_(), ym)) return fail_('CLOSED', opsClosedMsg_(ym));
+    } else {
+      if (o.status !== OST.WAIT) return fail_('STATE', '확인 대기 중인 작업일보가 아닙니다.');
+      if (o.authorId === me.id) return fail_('SELF', '본인이 쓴 작업일보는 본인이 확인할 수 없습니다.');
+      if (ok && isClosed_(closedMonths_(), ym)) return fail_('CLOSED', opsClosedMsg_(ym));
+    }
+    if (ok) { o.status = OST.DONE; o.confirmer = me.name; o.confirmedAt = nowStr_(); o.reason = ''; }
+    else { o.status = OST.REJECT; o.confirmer = me.name; o.confirmedAt = nowStr_(); o.reason = reason; }
+    opsWrite_(sh, o, o._row);
+    audit_(me.id, ok ? '일보확인' : '일보반려', o.docNo);
+    return { ok: true, item: opsPublic_(o) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** 작성중·반려 상태의 본인 작업일보만 지운다. 번호가 이미 나간 건은 기록을 남기고 삭제 표시만 한다. */
+function deleteOps_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const sh = ensureOpsSheet_(getDb_());
+    const o = opsFind_(sh, String(req.id || ''));
+    if (!o) return fail_('NOT_FOUND', '없는 작업일보입니다.');
+    if (o.authorId !== me.id) return fail_('FORBIDDEN', '본인이 쓴 작업일보만 지울 수 있습니다.');
+    if (o.status !== OST.DRAFT && o.status !== OST.REJECT) return fail_('STATE', '제출된 작업일보는 지울 수 없습니다.');
+    o.status = OST.DEL;
+    opsWrite_(sh, o, o._row);
+    audit_(me.id, '일보삭제', o.docNo || o.id);
     return { ok: true };
   } finally {
     lock.releaseLock();
