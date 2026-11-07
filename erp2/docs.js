@@ -80,19 +80,16 @@
     var st = el('table', 'gj-stamp'); top.appendChild(st);
     var r1 = st.appendChild(el('tr')), r2 = st.appendChild(el('tr')), r3 = st.appendChild(el('tr'));
     var lab = el('th', '', '결\n재'); lab.rowSpan = 3; lab.style.width = '28px'; lab.style.whiteSpace = 'pre'; r1.appendChild(lab);
-    [['기 안', '(작성자)'], ['현장소장', '(현장대리인)'], ['본사 제출', '(제출 표시)'], ['부사장', '(본사 확인)'], ['회 장', '(본사 결재)']].forEach(function (h) {
+    [['기 안', '(작성자)'], ['현장소장', '(현장대리인)'], ['부사장', '(본사 확인)'], ['회 장', '(본사 결재)']].forEach(function (h) {
       var th = el('th', '', h[0]); th.appendChild(el('small', '', h[1])); r1.appendChild(th);
     });
     function cell(row, node, cls) { var td = row.appendChild(el('td', cls || '')); td.appendChild(node); return td; }
-    var hq = m.hq || {}, submitAt = hq.submitAt || (hq.state === '제출' ? hq.at : '');
+    var hq = m.hq || {};
     // 기안
     cell(r2, m.drafted ? seal('기안', m.author) : ph('미날인')); cell(r3, m.drafted ? document.createTextNode(mmdd(m.date)) : ph(' '), 'gj-date');
     // 현장소장
     if (m.approver) { cell(r2, seal('현장소장', m.approver)); cell(r3, document.createTextNode(mmdd(m.approvedAt)), 'gj-date'); }
     else { cell(r2, ph(m.status === '승인대기' ? '승인대기' : '미날인')); cell(r3, ph(' '), 'gj-date'); }
-    // 본사 제출
-    if (submitAt) { cell(r2, gjBox('#1d4ed8', '#eff6ff', '본사제출')); cell(r3, document.createTextNode(mmdd(submitAt) + ' 제출'), 'gj-date'); }
-    else { cell(r2, ph('제출대기')); cell(r3, ph(' '), 'gj-date'); }
     // 부사장 = 본사 확인
     if (hq.state === '확인') { cell(r2, gjBox('#15803d', '#f0fdf4', '확인', hq.by)); cell(r3, document.createTextNode(mmdd(hq.at)), 'gj-date'); }
     else { cell(r2, ph(hq.state === '제출' ? '회신대기' : '서명')); cell(r3, ph(' '), 'gj-date'); }
@@ -112,7 +109,8 @@
     sr.firstChild.style.verticalAlign = 'top'; sr.firstChild.style.paddingTop = '14px';
     brow(m.kind === '공문' ? '붙 임' : '붙임/첨부', '', txt(m.attach, '(없음)'), { padding: '8px 10px' });
 
-    var f = el('div', 'gj-foot', '(주)동우건설 호남고속선 재해예방공사 현장 현장소장 ' + (m.mgr || MGR_NAME)); S.appendChild(f);
+    // 품의는 회사 안(본사)으로 올리는 문서라 회사명을 빼고, 공문은 밖으로 나가므로 회사명을 쓴다
+    var f = el('div', 'gj-foot', (m.kind === '품의' ? '' : '(주)동우건설 ') + '호남고속선 재해예방공사 현장 현장소장 ' + (m.mgr || MGR_NAME)); S.appendChild(f);
     return S;
   }
   /** 화면 너비에 맞춰 줄인다(숨은 화면은 건너뛴다) */
