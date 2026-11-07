@@ -239,12 +239,12 @@
     return new Promise(function (res, rej) {
       var url = URL.createObjectURL(file), img = new Image();
       img.onload = function () {
-        var out = null, dims = [1600, 1280, 1000];
+        var out = null, dims = [1280, 1024, 800];
         for (var k = 0; k < dims.length && !out; k++) {
           var w = img.naturalWidth, h = img.naturalHeight, s = Math.min(1, dims[k] / Math.max(w, h));
           var c = document.createElement('canvas'); c.width = Math.max(1, Math.round(w * s)); c.height = Math.max(1, Math.round(h * s));
           var g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
-          var d = c.toDataURL('image/jpeg', 0.78).split(',')[1]; if (d.length <= 2000000) out = d;
+          var d = c.toDataURL('image/jpeg', 0.72).split(',')[1]; if (d.length <= 2000000) out = d;
         }
         URL.revokeObjectURL(url); out ? res(out) : rej(new Error('big'));
       };
