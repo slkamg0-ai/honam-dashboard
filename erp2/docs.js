@@ -244,6 +244,7 @@
     if (i.due) kv(p, '회신기한', i.due + (i.kind !== '품의' ? (i.replied ? ' (회신 완료)' : '') : ''));
     kvLink(p, '문서', i.link ? '문서 열기 (구글 문서)' : '', i.link);
     kvLink(p, '폴더', i.folderUrl ? '드라이브 폴더 열기' : '', i.folderUrl);
+    if (i.gapji) kvLink(p, '갑지 PDF', '갑지 PDF 열기', i.gapji);
     if (i.pdf) kvLink(p, '확정본', '확정 PDF 열기', i.pdf);
     kv(p, '작성', i.author + ' · ' + i.created);
     if (i.reviewer && (i.status === '승인대기' || i.status === '확정')) kv(p, '검토', i.reviewer + ' · ' + i.reviewedAt);
@@ -266,7 +267,7 @@
         busy = false;
         if (fail('dDMsg', r)) return;
         if (!r.ok) return;
-        showDetail(r.item, okText);
+        showDetail(r.item, okText + ((r.warn && r.warn.length) ? '\n※ ' + r.warn.join(' ') : ''));
       });
     }
     /** 사유·메모를 적는 칸을 버튼 자리에 연다 */
@@ -307,6 +308,7 @@
       if (hqs === '제출' && isMgr()) btn('본사 확인 표시', 'ok', function () { noteBox('확인 표시', '확인 방법·담당자 (예: 전화 확인 — 비워 둬도 됩니다)', false, 'ok', function (v) { act('hqDoc', { id: i.id, step: '확인', note: v }, '본사 확인을 표시했습니다.'); }); });
       if (hqs && isMgr()) btn('본사 표시 취소', 'warn', function () { noteBox('취소 확정', '취소 사유 (필수, 기록으로 남습니다)', true, 'warn', function (v) { act('hqDoc', { id: i.id, step: '취소', note: v }, '본사 표시를 취소했습니다.'); }); });
     }
+    if (i.kind !== '접수' && i.status === '확정' && (mine || isGm())) btn(i.gapji ? '갑지 PDF 다시 만들기' : '갑지 PDF 만들기', '', function () { act('gapjiDoc', { id: i.id }, '갑지 PDF를 만들었습니다.'); });
     if (i.status !== '결번' && (mine || isGm())) btn('링크 바꾸기', '', linkBox);
     if ((i.status === '작성중' || i.status === '반려' || i.status === '접수') && (mine || isMgr())) {
       btn('결번 처리', 'warn', function () { noteBox('결번 확정', '결번 사유 (번호는 지우지 않고 기록으로 남깁니다)', true, 'warn', function (v) { act('voidDoc', { id: i.id, reason: v }, '결번으로 처리했습니다.'); }); });
