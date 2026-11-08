@@ -58,6 +58,38 @@
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .tile.on { background: #eff6ff; border: 1px solid #93c5fd; color: #1e3a8a; cursor: pointer; text-align: left; font-family: inherit; }
   .tile.on small { color: #1d4ed8; }
+  .tile, .tile small { word-break: keep-all; overflow-wrap: break-word; }
+  .dbdate { font-size: 12.5px; font-weight: 600; color: #64748b; margin-left: 6px; }
+  .dbok { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; border-radius: 10px; padding: 12px; font-size: 14px; font-weight: 700; }
+  .dbt { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; text-align: left; margin: 6px 0; padding: 11px 12px; border-radius: 10px; font-size: 14.5px; font-weight: 700; background: #f8fafc; color: #334155; border: 1px solid #e2e8f0; font-family: inherit; }
+  .dbt .l { min-width: 0; word-break: keep-all; }
+  .dbt .n { flex: none; font-size: 12.5px; font-weight: 800; padding: 2px 9px; border-radius: 11px; background: #e2e8f0; color: #334155; }
+  .dbt.act { background: #fef2f2; border-color: #fecaca; color: #7f1d1d; } .dbt.act .n { background: #dc2626; color: #fff; }
+  .dbt.late { background: #fef2f2; border-color: #fecaca; color: #7f1d1d; } .dbt.late .n { background: #b91c1c; color: #fff; }
+  .dbt.warn { background: #fffbeb; border-color: #fde68a; color: #78350f; } .dbt.warn .n { background: #f59e0b; color: #fff; }
+  .dbt.fix { background: #fff7ed; border-color: #fed7aa; color: #7c2d12; } .dbt.fix .n { background: #ea580c; color: #fff; }
+  .dbpill { font-size: 11.5px; font-weight: 800; padding: 2px 9px; border-radius: 10px; margin-left: 4px; vertical-align: 1px; }
+  .dbpill.open { background: #dbeafe; color: #1e40af; } .dbpill.closed { background: #e2e8f0; color: #334155; }
+  .dbkv { display: grid; grid-template-columns: 62px 1fr; gap: 8px; padding: 6px 0; border-top: 1px solid #f1f5f9; font-size: 13.5px; }
+  .dbkv:first-child { border-top: 0; } .dbkv b { color: #475569; } .dbkv span { word-break: keep-all; overflow-wrap: break-word; } .dbkv .dbwarn { color: #b45309; font-weight: 700; }
+  .dbhead { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+  .dbhead .big { font-size: 20px; font-weight: 800; color: #0f172a; } .dbhead .sub { font-size: 12.5px; color: #64748b; }
+  .pbar { position: relative; height: 10px; background: #e2e8f0; border-radius: 5px; overflow: visible; margin: 6px 0 4px; }
+  .pbar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 5px; background: #2563eb; }
+  .pbar i.pend { background: #93c5fd; }
+  .pbar.done i.fill { background: #16a34a; } .pbar.late i.fill { background: #dc2626; } .pbar.soon i.fill { background: #94a3b8; } .pbar.all i.fill { background: #0f766e; }
+  .pbar u { position: absolute; top: -3px; bottom: -3px; width: 2px; background: #0f172a; opacity: .55; text-decoration: none; }
+  .dbchips { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 4px; }
+  .tg { display: inline-block; font-size: 11.5px; font-weight: 800; padding: 2px 8px; border-radius: 9px; background: #f1f5f9; color: #475569; }
+  .tg.done { background: #dcfce7; color: #166534; } .tg.go { background: #dbeafe; color: #1e40af; } .tg.late { background: #fee2e2; color: #991b1b; } .tg.soon { background: #f1f5f9; color: #475569; }
+  .dbs { padding: 9px 0; border-top: 1px solid #f1f5f9; }
+  .dbs .nm { display: block; } .dbs .nm b { font-size: 14px; } .dbs .nm small { display: block; color: #64748b; font-size: 11.5px; word-break: keep-all; overflow-wrap: break-word; }
+  .dbs .sd { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 13px; font-weight: 700; }
+  .dbs .pl, .dbg .pl { font-size: 11.5px; color: #64748b; }
+  .dbnone { color: #64748b; font-size: 13px; padding: 8px 0; }
+  .dbtoggle { margin-top: 8px; }
+  .dbg { padding: 8px 0; border-top: 1px solid #f1f5f9; } .dbg .tp { display: flex; justify-content: space-between; font-size: 14px; } .dbg .tp span { font-weight: 800; }
+  .dbnote { font-size: 11.5px; color: #64748b; margin: 2px 0 8px; line-height: 1.5; word-break: keep-all; }
   .badge { display: inline-block; background: #dc2626; color: #fff; border-radius: 10px; padding: 1px 7px; font-size: 11.5px; margin-left: 4px; }
   .xbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
   .xbar input[type=month] { width: auto; font-size: 15px; padding: 7px 8px; border: 1px solid #cbd5e1; border-radius: 8px; }
@@ -193,9 +225,13 @@
   </div>
   <div class="wrap">
     <div id="vHome">
+      <div class="panel" id="dbToday">
+        <h3>오늘 처리할 일 <span class="dbdate" id="dbDate"></span> <button type="button" class="sm" id="dbRefresh" style="float:right">새로고침</button></h3>
+        <div class="msg" id="dbMsg"></div>
+        <div id="dbTodo"></div>
+      </div>
       <div class="panel">
-        <h3>현장 ERP v2</h3>
-        <p class="desc">로그인·직원 관리·경비 입력·월 마감·작업일보·문서(품의·공문·접수)까지 열렸습니다. 나머지 기능은 순서대로 열립니다.</p>
+        <h3>업무 메뉴</h3>
         <div class="tiles">
           <button type="button" class="tile on" id="tileExp">경비 입력<small id="tileExpSub">영수증 등록 · 검토 · 승인</small></button>
           <button type="button" class="tile on" id="tileDoc">문서<small id="tileDocSub">품의 · 공문 · 접수 · 문서대장</small></button>
@@ -203,6 +239,9 @@
           <button type="button" class="tile on" id="tileClose">월 마감<small id="tileCloseSub">점검 · 마감 · 본사 제출 엑셀</small></button>
         </div>
       </div>
+      <div class="panel hide" id="dbMonth"><h3><span id="dbMonthTitle">이번 달</span> <span class="dbpill" id="dbMonthState"></span></h3><div id="dbMonthBody"></div></div>
+      <div class="panel hide" id="dbSites"><h3>개소별 진행률</h3><div id="dbSitesBody"></div></div>
+      <div class="panel hide" id="dbBudget"><h3>실행예산 집행</h3><div id="dbBudgetBody"></div></div>
     </div>
 
     <div id="vExp" class="hide">
@@ -595,7 +634,8 @@
     });
   };
 
-  setTimeout(boot, 0); // expense.js 가 연결 지점을 등록한 다음에 시작한다
+  // 아래의 모듈 파일(expense·ops·docs·dash …)이 모두 연결 지점을 등록한 뒤에 시작한다. (느린 통신에서 뒤쪽 파일이 늦게 오면 홈 숫자가 안 뜨는 일을 막는다)
+  if (document.readyState === 'complete') setTimeout(boot, 0); else window.addEventListener('load', boot);
 })();
 </script>
 <script src="expense.js"></script>
@@ -603,5 +643,6 @@
 <script src="close.js"></script>
 <script src="ops.js"></script>
 <script src="docs.js"></script>
+<script src="dash.js"></script>
 </body>
 </html>

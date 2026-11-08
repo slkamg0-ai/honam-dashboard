@@ -76,7 +76,7 @@ function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.11' }; }
+function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.12' }; }
 
 function route_(req) {
   const t0 = Date.now();
@@ -115,13 +115,14 @@ function route_(req) {
       case 'replyDoc': out = replyDoc_(req); break;
       case 'linkDoc': out = linkDoc_(req); break;
       case 'hqDoc': out = hqDoc_(req); break;
-    case 'gapjiDoc': out = gapjiDoc_(req); break;
-    case 'uploadDocFile': out = uploadDocFile_(req); break;
-    case 'deleteDocFile': out = deleteDocFile_(req); break;
-    case 'getDocFile': out = getDocFile_(req); break;
-    case 'verifyDoc': out = verifyDoc_(req); break;
-    case 'mailPreview': out = mailPreview_(req); break;
-    case 'sendHqMail': out = sendHqMail_(req); break;
+      case 'gapjiDoc': out = gapjiDoc_(req); break;
+      case 'uploadDocFile': out = uploadDocFile_(req); break;
+      case 'deleteDocFile': out = deleteDocFile_(req); break;
+      case 'getDocFile': out = getDocFile_(req); break;
+      case 'verifyDoc': out = verifyDoc_(req); break;
+      case 'mailPreview': out = mailPreview_(req); break;
+      case 'sendHqMail': out = sendHqMail_(req); break;
+      case 'dashboard': out = dashboard_(req); break;
       default: out = fail_('UNKNOWN_ACTION', '알 수 없는 요청입니다.');
     }
   } catch (err) {
@@ -2171,4 +2172,119 @@ function hqDoc_(req) {
   } finally {
     lock.releaseLock();
   }
+}
+
+// ───────────────────────────── 홈 대시보드 (v2.12) ─────────────────────────────
+// 홈 화면에 필요한 숫자를 한 번에 계산해서 보낸다. 읽기만 하며 아무것도 바꾸지 않는다.
+// 실행예산(금액)은 현장소장·공무에게만 보낸다. 나머지는 로그인한 모든 직원에게 같다.
+function dashDays_(a, b) { // 'YYYY-MM-DD' 두 날짜 사이 일수(b - a)
+  const pa = String(a).split('-'), pb = String(b).split('-');
+  return Math.round((Date.UTC(+pb[0], +pb[1] - 1, +pb[2]) - Date.UTC(+pa[0], +pa[1] - 1, +pa[2])) / 86400000);
+}
+function dashHoliday_(d) { for (let i = 0; i < OPS_HOLIDAYS.length; i++) if (OPS_HOLIDAYS[i][0] === d) return true; return false; }
+function dashPrevYm_(ym) {
+  let y = Number(ym.slice(0, 4)), m = Number(ym.slice(5, 7)) - 1;
+  if (m < 1) { m = 12; y -= 1; }
+  return y + '-' + pad_(m, 2);
+}
+function dashPlanned_(today, start, end) { // 계획 진행률(달력일 기준 직선)
+  if (!start || !end) return null;
+  if (today <= start) return 0;
+  if (today >= end) return 100;
+  return Math.round(dashDays_(start, today) / dashDays_(start, end) * 100);
+}
+
+function dashboard_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s, isMgr = me.role === MANAGER_ROLE, isGm = isMgr || me.role === '공무';
+  const today = nowStr_().slice(0, 10), ym = today.slice(0, 7), pym = dashPrevYm_(ym);
+  const ss = getDb_();
+  const exps = expRows_(ensureExpSheet_(ss)).filter(function (o) { return o.status !== ST.DEL; });
+  const ops = opsRows_(ensureOpsSheet_(ss)).filter(function (o) { return o.status !== OST.DEL; });
+  const docs = docRows_(ensureDocSheet_(ss));
+  const closed = closedMonths_(true);
+  const count = function (list, fn) { return list.filter(fn).length; };
+
+  // ① 오늘 처리할 일
+  const todo = [];
+  const add = function (key, label, n, unit, tone, go, tag) { if (n > 0) todo.push({ key: key, label: label, n: n, unit: unit, tone: tone, go: go, tag: tag || '' }); };
+  const notMine = function (o) { return o.authorId !== me.id; };
+  const mine = function (o) { return o.authorId === me.id; };
+  add('expAct', '결재할 경비', count(exps, function (o) { return notMine(o) && ((o.status === ST.REVIEW && isGm) || (o.status === ST.APPROVAL && isMgr)); }), '건', 'act', 'exp');
+  add('opsAct', '확인할 작업일보', isGm ? count(ops, function (o) { return o.status === OST.WAIT && notMine(o); }) : 0, '건', 'act', 'ops');
+  add('docAct', '결재할 문서', count(docs, function (o) { return (o.status === DST.REVIEW && isGm && notMine(o)) || (o.status === DST.APPROVAL && isMgr); }), '건', 'act', 'doc');
+  add('docLate', '회신 지연 문서', count(docs, function (o) { return o.kind !== '품의' && o.replied !== 'Y' && o.due && (o.status === DST.RECV || o.status === DST.DONE) && String(o.due) < today; }), '건', 'late', 'doc');
+  add('expFix', '반려된 내 경비', count(exps, function (o) { return mine(o) && o.status === ST.REJECT; }), '건', 'fix', 'exp');
+  add('opsFix', '반려된 내 작업일보', count(ops, function (o) { return mine(o) && o.status === OST.REJECT; }), '건', 'fix', 'ops');
+  add('docFix', '반려된 내 문서', count(docs, function (o) { return mine(o) && o.status === DST.REJECT; }), '건', 'fix', 'doc');
+  const planStarts = Object.keys(OPS_PLAN).map(function (k) { return OPS_PLAN[k][0]; }).sort();
+  const first = planStarts[0] || '', lastEnd = Object.keys(OPS_PLAN).map(function (k) { return OPS_PLAN[k][1]; }).sort().pop() || '';
+  const hasOps = {}; ops.forEach(function (o) { if (o.status !== OST.REJECT) hasOps[o.date] = true; });
+  const workDay = function (d) { return d >= first && !dashHoliday_(d); };
+  add('opsToday', '오늘 작업일보 작성', workDay(today) && !hasOps[today] ? 1 : 0, '', 'warn', 'ops', '미작성');
+  let missing = 0;
+  for (let day = 1; day < Number(today.slice(8, 10)); day++) {
+    const ds = ym + '-' + pad_(day, 2);
+    if (workDay(ds) && !hasOps[ds]) missing++;
+  }
+  add('opsMissing', '이번 달 일보 없는 날', missing, '일', 'warn', 'ops');
+  add('docDraft', '작성 중인 내 문서', count(docs, function (o) { return mine(o) && o.status === DST.DRAFT; }), '건', 'mine', 'doc');
+  add('expDraft', '작성 중인 내 경비', count(exps, function (o) { return mine(o) && o.status === ST.DRAFT; }), '건', 'mine', 'exp');
+  add('opsDraft', '작성 중인 내 작업일보', count(ops, function (o) { return mine(o) && o.status === OST.DRAFT; }), '건', 'mine', 'ops');
+
+  // ② 이번 달 / 지난달 상태
+  const cl = closed.filter(function (c) { return c.ym === ym; })[0] || null;
+  const claimed = exps.filter(function (o) { return expClaimMonth_(o) === ym; });
+  const approved = claimed.filter(function (o) { return o.status === ST.DONE; });
+  const monthOps = ops.filter(function (o) { return String(o.date).slice(0, 7) === ym; });
+  const month = {
+    ym: ym, closed: !!cl, closedBy: cl ? cl.by : '', closedAt: cl ? cl.at : '', hq: cl ? cl.hq.state : '',
+    expApproved: approved.length, expTotal: approved.reduce(function (a, o) { return a + (Number(o.total) || 0); }, 0),
+    expWaiting: count(claimed, function (o) { return o.status === ST.REVIEW || o.status === ST.APPROVAL; }),
+    opsDone: count(monthOps, function (o) { return o.status === OST.DONE; }), opsWaiting: count(monthOps, function (o) { return o.status === OST.WAIT; }),
+    people: monthOps.reduce(function (a, o) { return a + ((o.status === OST.DONE || o.status === OST.WAIT) ? (Number(o.staff) || 0) + (Number(o.worker) || 0) + (Number(o.safety) || 0) : 0); }, 0)
+  };
+  const pc = closed.filter(function (c) { return c.ym === pym; })[0] || null;
+  const prevHas = exps.some(function (o) { return expClaimMonth_(o) === pym && o.status !== ST.DRAFT && o.status !== ST.REJECT; }) ||
+    ops.some(function (o) { return String(o.date).slice(0, 7) === pym && o.status !== OST.DRAFT && o.status !== OST.REJECT; });
+  const prev = prevHas ? { ym: pym, closed: !!pc, hq: pc ? pc.hq.state : '' } : null;
+  if (prev && !prev.closed && isMgr) add('prevOpen', Number(pym.slice(5, 7)) + '월 마감이 아직입니다', 1, '', 'warn', 'close', '마감 필요');
+  if (prev && prev.closed && !prev.hq && isGm) add('prevHq', Number(pym.slice(5, 7)) + '월 본사 제출 표시가 아직입니다', 1, '', 'warn', 'close', '제출 전');
+
+  // ③ 개소별 진행률(올라간 일보 기준 가장 최근 누계 진행률)
+  const latest = {};
+  ops.forEach(function (o) {
+    const s = Number(o.site) || 0; if (!s || o.progress === '' || (o.status !== OST.WAIT && o.status !== OST.DONE)) return;
+    const cur = latest[s], p = Number(o.progress);
+    if (!cur || o.date > cur.date || (o.date === cur.date && p > cur.pct)) latest[s] = { date: o.date, pct: p };
+  });
+  const sites = SITES.map(function (r) {
+    const no = r[0], pl = OPS_PLAN[no] || ['', ''], lt = latest[no] || null, pct = lt ? lt.pct : null;
+    const planned = dashPlanned_(today, pl[0], pl[1]), inPlan = !!pl[0] && today >= pl[0] && today <= pl[1];
+    let state;
+    if (pct !== null && pct >= 100) state = '완료';
+    else if (pl[1] && today > pl[1]) state = '지연';
+    else if (inPlan) state = ((pct || 0) + 10 < planned) ? '지연' : '진행';
+    else state = (pct || 0) > 0 ? '진행' : '예정';
+    return { no: no, code: r[1], route: r[2], location: r[3], work: r[4], planStart: pl[0], planEnd: pl[1], pct: pct, planned: planned, state: state, inPlan: inPlan, lastDate: lt ? lt.date : '' };
+  });
+  const sum = { n: sites.length, done: 0, going: 0, late: 0, soon: 0, avgPct: 0, avgPlan: 0 };
+  sites.forEach(function (s) { if (s.state === '완료') sum.done++; else if (s.state === '진행') sum.going++; else if (s.state === '지연') sum.late++; else sum.soon++; sum.avgPct += s.pct || 0; sum.avgPlan += s.planned || 0; });
+  sum.avgPct = sites.length ? Math.round(sum.avgPct / sites.length) : 0; sum.avgPlan = sites.length ? Math.round(sum.avgPlan / sites.length) : 0;
+
+  // ④ 실행예산 집행(승인된 경비의 공급가, 검토·승인 대기는 따로) — 금액이라 현장소장·공무에게만
+  let budget = null;
+  if (isGm) {
+    const groups = EXEC_BUDGET.map(function (b) {
+      let spent = 0, pending = 0;
+      exps.forEach(function (o) {
+        if (b.items.indexOf(o.budget) < 0) return;
+        if (o.status === ST.DONE) spent += Number(o.supply) || 0; else if (o.status === ST.REVIEW || o.status === ST.APPROVAL) pending += Number(o.supply) || 0;
+      });
+      return { label: b.label, budget: b.budget, spent: spent, pending: pending };
+    });
+    budget = { groups: groups, total: groups.reduce(function (a, x) { return { budget: a.budget + x.budget, spent: a.spent + x.spent, pending: a.pending + x.pending }; }, { budget: 0, spent: 0, pending: 0 }) };
+  }
+  const period = { start: first, end: lastEnd, pct: dashPlanned_(today, first, lastEnd) };
+  return { ok: true, today: today, role: me.role, todo: todo, month: month, prev: prev, sites: sites, siteSummary: sum, budget: budget, period: period };
 }
