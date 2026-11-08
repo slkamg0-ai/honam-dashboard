@@ -58,6 +58,23 @@
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .tile.on { background: #eff6ff; border: 1px solid #93c5fd; color: #1e3a8a; cursor: pointer; text-align: left; font-family: inherit; }
   .tile.on small { color: #1d4ed8; }
+  .og-top { display: flex; justify-content: center; }
+  .og-line { width: 2px; height: 14px; background: #cbd5e1; margin: 0 auto; }
+  .og-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 9px; border-top: 2px solid #cbd5e1; padding-top: 12px; }
+  .og { border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px 11px; background: #fff; min-width: 0; }
+  .og.mgr { border-color: #1d4ed8; background: #eff6ff; min-width: 190px; text-align: center; }
+  .og .on { font-weight: 800; font-size: 15px; overflow-wrap: anywhere; }
+  .og .ot { font-size: 12.5px; color: #334155; margin-top: 2px; overflow-wrap: anywhere; }
+  .og .od { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; } .og.mgr .od { justify-content: center; }
+  .og .dc { font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 10px; background: #e2e8f0; color: #334155; }
+  .og .dc.main { background: #1d4ed8; color: #fff; }
+  .og .or { font-size: 11px; color: #94a3b8; margin-top: 6px; }
+  .og input[type=text] { width: 100%; box-sizing: border-box; margin: 2px 0 4px; }
+  .og label { font-size: 11.5px; font-weight: 700; color: #475569; margin-top: 6px; display: block; }
+  .og .qk { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 2px; }
+  .og .qk button { font-size: 11.5px; padding: 3px 9px; border-radius: 12px; }
+  .og .qk button.sel { background: #1d4ed8; color: #fff; }
+  .og .oh { font-size: 11.5px; color: #64748b; min-height: 15px; }
   .tk { border: 1px solid #e2e8f0; border-radius: 12px; padding: 11px 12px; margin-bottom: 9px; background: #fff; }
   .tk.late { border-color: #fca5a5; background: #fef2f2; } .tk.soon { border-color: #fcd34d; background: #fffbeb; } .tk.done { background: #f8fafc; }
   .tk .t1 { display: flex; gap: 8px; align-items: flex-start; justify-content: space-between; }
@@ -228,6 +245,7 @@
       <div class="brand"><small>호남고속선 재해예방공사</small><b>HN28 현장 ERP</b></div>
       <button type="button" class="mbtn" id="btnMenu" aria-haspopup="menu" aria-expanded="false" aria-controls="menu"><span class="av" id="whoAv" aria-hidden="true"></span><span id="who"></span><span class="car" aria-hidden="true">▼</span></button>
       <div class="menu hide" id="menu" role="menu">
+        <button type="button" role="menuitem" id="btnOrg">조직표</button>
         <button type="button" role="menuitem" id="btnAdmin" class="hide">직원 관리</button>
         <button type="button" role="menuitem" id="btnChange">PIN 변경</button>
         <button type="button" role="menuitem" id="btnLogout" class="out">로그아웃</button>
@@ -434,6 +452,20 @@
       </div>
     </div>
 
+    <div id="vOrg" class="hide">
+      <div class="panel">
+        <h3><span id="orgTitle">조직표</span> <button class="sm" id="orgBack" style="float:right">돌아가기</button></h3>
+        <div class="desc" id="orgIntro"></div>
+        <div id="orgBody"></div>
+        <div class="msg" id="orgMsg"></div>
+        <div id="orgActs" class="hide">
+          <button class="pri" id="orgSave">저장</button>
+          <button type="button" class="sm" id="orgLater" style="margin-top:8px">나중에 하기</button>
+        </div>
+        <div id="orgAdminLink" class="hide"><button type="button" class="sm" id="orgToAdmin" style="margin-top:10px">직원 추가·권한·PIN은 「직원 관리」에서</button></div>
+      </div>
+    </div>
+
     <div id="vAdmin" class="hide">
       <div class="panel">
         <h3>직원 관리 <button class="sm" id="btnAdminBack" style="float:right">돌아가기</button></h3>
@@ -452,7 +484,11 @@
           <div><label for="nuId">로그인 ID</label><input type="text" id="nuId" maxlength="20" autocomplete="off"></div>
           <div><label for="nuName">이름</label><input type="text" id="nuName" maxlength="20" autocomplete="off"></div>
         </div>
-        <label for="nuRole">역할</label>
+        <div class="grid2">
+          <div><label for="nuTitle">직책 <small style="font-weight:500;color:#64748b">(예: 품질관리자)</small></label><input type="text" id="nuTitle" maxlength="20" autocomplete="off"></div>
+          <div><label for="nuDuty">담당업무 <small style="font-weight:500;color:#64748b">(예: 품질, 공사)</small></label><input type="text" id="nuDuty" maxlength="40" autocomplete="off"></div>
+        </div>
+        <label for="nuRole">권한 <small style="font-weight:500;color:#64748b">(앱에서 누를 수 있는 범위)</small></label>
         <select id="nuRole"><option>공사</option><option>공무</option><option>현장소장</option></select>
         <button class="pri" id="btnAdd">직원 추가</button>
         <div class="msg" id="addMsg"></div>
@@ -468,7 +504,7 @@
   var API = (window.ERP2_CONFIG && window.ERP2_CONFIG.API_URL) || '';
   var TOKEN_KEY = 'HN28V2_TOKEN', LAST_ID_KEY = 'HN28V2_LAST_ID';
   var ROLES = ['공사', '공무', '현장소장'];
-  var me = null, token = '', pinMode = 'first';
+  var me = null, token = '', pinMode = 'first', orgSetup = true;
   var $ = function (id) { return document.getElementById(id); };
 
   function store(k, v) { try { if (v) sessionStorage.setItem(k, v); else sessionStorage.removeItem(k); } catch (e) {} }
@@ -493,11 +529,13 @@
   }
 
   // ── 다른 파일(expense.js)이 쓰는 연결 지점 ──
-  var VIEWS = ['vHome', 'vAdmin', 'vExp', 'vClose', 'vOps', 'vDoc', 'vTask'];
+  var VIEWS = ['vHome', 'vOrg', 'vAdmin', 'vExp', 'vClose', 'vOps', 'vDoc', 'vTask'];
   window.ERP2 = {
     $: $, el: function (tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; },
     api: function (action, data, ms) { var d = data || {}; d.token = token; return api(action, d, ms); },
     me: function () { return me; },
+    setMe: function (u) { if (me && u) { me.name = u.name || me.name; me.title = u.title || ''; me.duty = u.duty || ''; me.duties = u.duties || []; renderWho(); } },
+    orgSetup: function (v) { if (v !== undefined) orgSetup = !!v; return orgSetup; },
     authLost: function (r) { return authLost(r); },
     showView: function (name) { VIEWS.forEach(function (v) { $(v).classList.toggle('hide', v !== name); }); },
     onEnter: [], onLeave: []
@@ -520,11 +558,14 @@
   function showLoading(title, desc, retry) {
     showOnly('pLoading'); $('loadTitle').textContent = title; $('loadDesc').textContent = desc; $('btnRetry').classList.toggle('hide', !retry);
   }
+  function renderWho() {
+    $('who').textContent = ''; $('who').appendChild(document.createTextNode(me.name + ' '));
+    var wr = document.createElement('span'); wr.className = 'wr'; wr.textContent = me.title || me.role; $('who').appendChild(wr);
+    $('whoAv').textContent = String(me.name || '?').charAt(0);
+  }
   function enterApp() {
     showOnly('vApp');
-    $('who').textContent = ''; $('who').appendChild(document.createTextNode(me.name + ' '));
-    var wr = document.createElement('span'); wr.className = 'wr'; wr.textContent = me.role; $('who').appendChild(wr);
-    $('whoAv').textContent = String(me.name || '?').charAt(0);
+    renderWho();
     setMenu(false);
     $('btnAdmin').classList.toggle('hide', me.role !== '현장소장');
     window.ERP2.showView('vHome');
@@ -542,7 +583,7 @@
     var slow = setTimeout(function () { $('loadDesc').textContent = '서버 응답이 늦어지고 있습니다. 잠시만 기다려 주세요.'; }, 6000);
     api('whoami', { token: token }, 15000).then(function (r) {
       clearTimeout(slow);
-      if (r.ok) { me = r.user; if (r.mustChangePin) openPin('first'); else enterApp(); return; }
+      if (r.ok) { me = r.user; orgSetup = r.orgSetup !== false; if (r.mustChangePin) openPin('first'); else enterApp(); return; }
       if (r.error === 'NETWORK' || r.error === 'BAD_RESPONSE') { showLoading('서버에 연결하지 못했습니다', r.message, true); return; }
       toLogin('');
     });
@@ -558,7 +599,7 @@
     api('login', { loginId: id, pin: pin }).then(function (r) {
       $('btnLogin').disabled = false;
       if (!r.ok) { msg.className = 'msg'; msg.textContent = r.message || '로그인하지 못했습니다.'; $('loginPin').value = ''; return; }
-      token = r.token; store(TOKEN_KEY, token); lastId(id); me = r.user; $('loginPin').value = '';
+      token = r.token; store(TOKEN_KEY, token); lastId(id); me = r.user; orgSetup = r.orgSetup !== false; $('loginPin').value = '';
       if (r.mustChangePin) openPin('first'); else enterApp();
     });
   };
@@ -588,7 +629,7 @@
       $('btnPin').disabled = false;
       if (authLost(r)) return;
       if (!r.ok) { m.textContent = r.message || 'PIN을 바꾸지 못했습니다.'; return; }
-      token = r.token; store(TOKEN_KEY, token); me = r.user; enterApp();
+      token = r.token; store(TOKEN_KEY, token); me = r.user; orgSetup = r.orgSetup !== false; enterApp();
     });
   };
   $('btnPinCancel').onclick = function () { enterApp(); };
@@ -633,12 +674,13 @@
       r.users.forEach(function (u) {
         var row = el('div', 'urow'), self = u.loginId === me.loginId;
         var nm = el('div', 'nm', u.name); nm.appendChild(el('small', '', '로그인 ID: ' + u.loginId + (self ? ' (본인)' : '')));
+        nm.appendChild(el('small', '', (u.title || '직책 미입력') + (u.duty ? ' · ' + u.duties.join('·') : '')));
         var tags = el('div', ''); tags.appendChild(el('span', 'tag' + (u.active ? '' : ' off'), u.active ? '사용중' : '중지'));
         if (u.locked) tags.appendChild(el('span', 'tag lock', '잠김'));
         if (u.mustChangePin) tags.appendChild(el('span', 'tag tmp', '임시PIN'));
         var sel = el('select'); ROLES.forEach(function (rl) { var o = el('option', '', rl); if (rl === u.role) o.selected = true; sel.appendChild(o); });
-        sel.disabled = self; sel.style.marginTop = '6px'; sel.style.padding = '7px'; sel.style.fontSize = '14px';
-        sel.onchange = function () { save({ loginId: u.loginId, role: sel.value }, u.name + ' 역할을 ' + sel.value + '(으)로 바꿨습니다. 해당 직원은 다시 로그인해야 합니다.'); };
+        sel.title = '권한'; sel.setAttribute('aria-label', u.name + ' 권한'); sel.disabled = self; sel.style.marginTop = '6px'; sel.style.padding = '7px'; sel.style.fontSize = '14px';
+        sel.onchange = function () { save({ loginId: u.loginId, role: sel.value }, u.name + ' 권한을 ' + sel.value + '(으)로 바꿨습니다. 해당 직원은 다시 로그인해야 합니다.'); };
         var mid = el('div'); mid.appendChild(tags); mid.appendChild(sel);
         var acts = el('div', 'acts');
         var bReset = el('button', 'sm', 'PIN 초기화');
@@ -664,11 +706,11 @@
     var id = $('nuId').value.trim(), name = $('nuName').value.trim(), m = $('addMsg'); m.className = 'msg';
     if (!id || !name) { m.textContent = '로그인 ID와 이름을 모두 입력해 주세요.'; return; }
     $('btnAdd').disabled = true; m.className = 'msg info'; m.textContent = '추가 중…';
-    api('saveUser', { token: token, create: true, loginId: id, name: name, role: $('nuRole').value }).then(function (r) {
+    api('saveUser', { token: token, create: true, loginId: id, name: name, role: $('nuRole').value, title: $('nuTitle').value, duty: $('nuDuty').value }).then(function (r) {
       $('btnAdd').disabled = false;
       if (authLost(r)) return;
       if (!r.ok) { m.className = 'msg'; m.textContent = r.message || '추가하지 못했습니다.'; return; }
-      m.textContent = name + ' 님을 추가했습니다.'; $('nuId').value = ''; $('nuName').value = '';
+      m.textContent = name + ' 님을 추가했습니다.'; $('nuId').value = ''; $('nuName').value = ''; $('nuTitle').value = ''; $('nuDuty').value = '';
       showTemp(name, r.tempPin); loadUsers();
     });
   };
@@ -683,6 +725,7 @@
 <script src="ops.js"></script>
 <script src="docs.js"></script>
 <script src="tasks.js"></script>
+<script src="org.js"></script>
 <script src="dash.js"></script>
 </body>
 </html>

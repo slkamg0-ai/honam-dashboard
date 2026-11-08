@@ -150,7 +150,7 @@
     $('tTitle').value = t ? t.title : ''; $('tMemo').value = t ? t.memo : '';
     var sel = $('tTo'); sel.textContent = '';
     var ph = el('option', '', '담당자를 선택하세요'); ph.value = ''; sel.appendChild(ph);
-    R.staff.forEach(function (s) { var o = el('option', '', s.name + ' (' + s.role + ')'); o.value = s.id; if (t && t.toId === s.id) o.selected = true; sel.appendChild(o); });
+    R.staff.forEach(function (s) { var o = el('option', '', s.name + ' (' + (s.title || s.role) + (s.duty ? ' · ' + s.duty.replace(/, /g, '·') : '') + ')'); o.value = s.id; if (t && t.toId === s.id) o.selected = true; sel.appendChild(o); });
     $('tDue').value = t ? t.due : ''; $('tDue').min = R.today; $('tUrgent').checked = !!(t && t.urgent);
     setMsg('tFMsg', ''); pane('form'); $('tTitle').focus();
   }

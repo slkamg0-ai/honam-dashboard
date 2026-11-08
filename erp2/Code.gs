@@ -13,10 +13,11 @@
 const DB_NAME = 'HN28_ERP_DB';
 const SHEET_USERS = '직원';
 const SHEET_AUDIT = '감사로그';
-const USER_HEADERS = ['로그인ID', '이름', '역할', 'PIN해시', '솔트', '사용', '임시PIN', '실패횟수', '잠금해제', '수정일시'];
-const COL = { id: 0, name: 1, role: 2, hash: 3, salt: 4, active: 5, temp: 6, fails: 7, lockUntil: 8, updated: 9 };
+const USER_HEADERS = ['로그인ID', '이름', '역할', 'PIN해시', '솔트', '사용', '임시PIN', '실패횟수', '잠금해제', '수정일시', '직책', '담당업무'];
+const COL = { id: 0, name: 1, role: 2, hash: 3, salt: 4, active: 5, temp: 6, fails: 7, lockUntil: 8, updated: 9, title: 10, duty: 11 };
 const ROLES = ['현장소장', '공무', '공사'];
 const MANAGER_ROLE = '현장소장';
+const DUTY_MAX = 5; // 한 사람이 맡는 담당업무 수(맨 앞이 주담당)
 const SHEET_EXP = '경비';
 const SHEET_SEQ = '번호';
 const SHEET_CLOSE = '마감';
@@ -76,7 +77,7 @@ function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.13' }; }
+function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.14' }; }
 
 function route_(req) {
   const t0 = Date.now();
@@ -90,6 +91,8 @@ function route_(req) {
       case 'changePin': out = changePin_(req); break;
       case 'listUsers': out = listUsers_(req); break;
       case 'saveUser': out = saveUser_(req); break;
+      case 'getOrg': out = getOrg_(req); break;
+      case 'saveOrg': out = saveOrg_(req); break;
       case 'getMaster': out = getMaster_(req); break;
       case 'listExpenses': out = listExpenses_(req); break;
       case 'saveExpense': out = saveExpense_(req); break;
@@ -183,7 +186,7 @@ function login_(req) {
     const must = r[COL.temp] === 'Y';
     const token = newSession_(r, must);
     audit_(id, '로그인', must ? '성공(임시PIN)' : '성공');
-    return { ok: true, token: token, mustChangePin: must, user: publicUser_(r) };
+    return { ok: true, token: token, mustChangePin: must, user: publicUser_(r), orgSetup: orgSetupDone_() };
   } finally {
     lock.releaseLock();
   }
@@ -192,7 +195,10 @@ function login_(req) {
 function whoami_(req) {
   const s = getSession_(req.token);
   if (!s) return fail_('AUTH', '로그인이 필요하거나 시간이 지나 만료되었습니다.');
-  return { ok: true, mustChangePin: !!s.must, user: { loginId: s.id, name: s.name, role: s.role } };
+  // 이름·직책·담당업무는 직원 시트에서 바로 읽는다(조직표를 고치면 다시 로그인하지 않아도 바뀐다)
+  const found = findUser_(ensureUsersSheet_(getDb_()), s.id);
+  const u = found ? publicUser_(found.row) : { loginId: s.id, name: s.name, role: s.role, title: '', duty: '', duties: [] };
+  return { ok: true, mustChangePin: !!s.must, user: { loginId: s.id, name: u.name, role: s.role, title: u.title, duty: u.duty, duties: u.duties }, orgSetup: orgSetupDone_() };
 }
 
 function logout_(req) {
@@ -223,7 +229,7 @@ function changePin_(req) {
     bumpEpoch_(s.id);
     const token = newSession_(r, false); // 이전 세션은 무효, 새 세션 발급
     audit_(s.id, 'PIN변경', '성공');
-    return { ok: true, token: token, user: publicUser_(r) };
+    return { ok: true, token: token, user: publicUser_(r), orgSetup: orgSetupDone_() };
   } finally {
     lock.releaseLock();
   }
@@ -263,6 +269,7 @@ function saveUser_(req) {
   if (!id) return fail_('PARAM', '로그인 ID를 입력해 주세요.');
   if (/[\s,;]/.test(id) || id.length > 20) return fail_('PARAM', '로그인 ID는 공백 없이 20자 이내로 입력해 주세요.');
   if (req.role !== undefined && ROLES.indexOf(String(req.role)) < 0) return fail_('PARAM', '역할은 ' + ROLES.join('/') + ' 중 하나여야 합니다.');
+  const of = orgFields_(req.title, req.duty); if (of.err) return of.err;
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
   try {
@@ -274,7 +281,7 @@ function saveUser_(req) {
       if (!name) return fail_('PARAM', '이름을 입력해 주세요.');
       const role = String(req.role || '공사');
       const temp = makeTempPin_();
-      appendUser_(sh, id, name, role, temp);
+      appendUser_(sh, id, name, role, temp, of.title, of.duty);
       audit_(me.id, '직원추가', id + ' / ' + role);
       return { ok: true, tempPin: temp };
     }
@@ -287,6 +294,8 @@ function saveUser_(req) {
       if (id === me.id) return fail_('SELF', '본인의 역할은 바꿀 수 없습니다.');
       r[COL.role] = String(req.role); changed.push('역할'); bumpEpoch_(id);
     }
+    if (of.title !== undefined && of.title !== String(r[COL.title] || '')) { r[COL.title] = of.title; changed.push('직책'); }
+    if (of.duty !== undefined && of.duty !== String(r[COL.duty] || '')) { r[COL.duty] = of.duty; changed.push('담당업무'); }
     if (req.active !== undefined) {
       const want = req.active ? 'Y' : 'N';
       if (want !== r[COL.active]) {
@@ -306,6 +315,66 @@ function saveUser_(req) {
     const out = { ok: true };
     if (tempPin) out.tempPin = tempPin;
     return out;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ───────────────────────────── 조직표 (직책·담당업무) ─────────────────────────────
+// 권한(역할: 현장소장/공무/공사)은 '무엇을 누를 수 있는지'만 정한다. 직책·담당업무는 '누가 무슨 일을 맡았는지'를 적는 칸으로,
+// 현장소장이 조직표에서 직접 입력하고 화면 전체(상단 이름, 직원 목록, 업무 지시 대상 선택)에 그대로 쓰인다.
+
+function orgSetupDone_() { return !!PropertiesService.getScriptProperties().getProperty('ORG_SETUP'); }
+
+/** 로그인한 누구나 볼 수 있다: 쓰는 사람 전원의 이름·권한·직책·담당업무. */
+function getOrg_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const members = readUsers_(ensureUsersSheet_(getDb_())).filter(function (r) { return r[COL.active] === 'Y'; }).map(function (r) {
+    const u = publicUser_(r);
+    return { loginId: u.loginId, name: u.name, role: u.role, title: u.title, duty: u.duty, duties: u.duties };
+  });
+  // 현장소장이 맨 위, 그다음은 시트에 적힌 순서
+  members.sort(function (a, b) { return (b.role === MANAGER_ROLE ? 1 : 0) - (a.role === MANAGER_ROLE ? 1 : 0); });
+  return { ok: true, members: members, orgSetup: orgSetupDone_(), canEdit: g.s.role === MANAGER_ROLE };
+}
+
+/** req: { token, members:[{loginId, title, duty}] } — 현장소장만. 한 번에 모두 저장하고 '조직표 설정 완료'로 표시한다. */
+function saveOrg_(req) {
+  const g = requireManager_(req); if (g.err) return g.err;
+  const list = req.members;
+  if (!Array.isArray(list) || !list.length) return fail_('PARAM', '저장할 구성원이 없습니다.');
+  if (list.length > 50) return fail_('PARAM', '구성원이 너무 많습니다.');
+  const parsed = [];
+  const seen = {};
+  for (let i = 0; i < list.length; i++) {
+    const m = list[i] || {};
+    const id = String(m.loginId || '').trim();
+    if (!id) return fail_('PARAM', '로그인 ID가 빠진 구성원이 있습니다.');
+    if (seen[id]) return fail_('PARAM', '같은 구성원이 두 번 들어 있습니다. (' + id + ')');
+    seen[id] = true;
+    const of = orgFields_(m.title === undefined ? '' : m.title, m.duty === undefined ? '' : m.duty);
+    if (of.err) return of.err;
+    parsed.push({ id: id, title: of.title, duty: of.duty });
+  }
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const sh = ensureUsersSheet_(getDb_());
+    const rows = readUsers_(sh);
+    const at = {};
+    rows.forEach(function (r, i) { at[String(r[COL.id])] = i; });
+    for (let i = 0; i < parsed.length; i++) if (at[parsed[i].id] === undefined) return fail_('NOT_FOUND', '없는 직원입니다. (' + parsed[i].id + ')');
+    let n = 0;
+    parsed.forEach(function (p) {
+      const r = rows[at[p.id]];
+      if (String(r[COL.title] || '') === p.title && String(r[COL.duty] || '') === p.duty) return;
+      r[COL.title] = p.title; r[COL.duty] = p.duty;
+      writeUser_(sh, at[p.id] + 2, r);
+      n++;
+    });
+    PropertiesService.getScriptProperties().setProperty('ORG_SETUP', nowStr_());
+    audit_(g.s.id, '조직표저장', n + '명 변경');
+    return { ok: true, changed: n };
   } finally {
     lock.releaseLock();
   }
@@ -384,9 +453,21 @@ function ensureUsersSheet_(ss) {
     sh = ss.insertSheet(SHEET_USERS);
     sh.getRange(1, 1, sh.getMaxRows(), USER_HEADERS.length).setNumberFormat('@'); // 전부 텍스트(해시가 숫자로 바뀌는 것을 막는다)
     sh.getRange(1, 1, 1, USER_HEADERS.length).setValues([USER_HEADERS]);
+    userSheetChecked_ = true;
+  } else if (!userSheetChecked_) {
+    // 직책·담당업무 칸이 생긴 버전으로 올라오면 머리글과 열을 덧붙인다 (기존 직원 자료는 건드리지 않는다)
+    const have = sh.getLastColumn();
+    if (have < USER_HEADERS.length) {
+      if (sh.getMaxColumns() < USER_HEADERS.length) sh.insertColumnsAfter(sh.getMaxColumns(), USER_HEADERS.length - sh.getMaxColumns());
+      const n = USER_HEADERS.length - have;
+      sh.getRange(1, have + 1, sh.getMaxRows(), n).setNumberFormat('@');
+      sh.getRange(1, have + 1, 1, n).setValues([USER_HEADERS.slice(have)]);
+    }
+    userSheetChecked_ = true;
   }
   return sh;
 }
+let userSheetChecked_ = false;
 
 function readUsers_(sh) {
   const last = sh.getLastRow();
@@ -405,15 +486,45 @@ function writeUser_(sh, rowNo, r) {
   sh.getRange(rowNo, 1, 1, USER_HEADERS.length).setValues([r]);
 }
 
-function appendUser_(sh, id, name, role, tempPin) {
+function appendUser_(sh, id, name, role, tempPin, title, duty) {
   const salt = Utilities.getUuid();
-  const row = [id, name, role, hashPin_(tempPin, salt), salt, 'Y', 'Y', 0, 0, nowStr_()];
+  const row = [id, name, role, hashPin_(tempPin, salt), salt, 'Y', 'Y', 0, 0, nowStr_(), title || '', duty || ''];
   const next = sh.getLastRow() + 1;
   sh.getRange(next, 1, 1, USER_HEADERS.length).setNumberFormat('@');
   sh.getRange(next, 1, 1, USER_HEADERS.length).setValues([row]);
 }
 
-function publicUser_(r) { return { loginId: r[COL.id], name: r[COL.name], role: r[COL.role], active: r[COL.active] === 'Y' }; }
+function publicUser_(r) {
+  const duties = splitDuty_(r[COL.duty]);
+  return { loginId: r[COL.id], name: r[COL.name], role: r[COL.role], active: r[COL.active] === 'Y', title: String(r[COL.title] || ''), duty: duties.join(', '), duties: duties };
+}
+
+/** 담당업무 글자("품질, 공사" · "품질/공사" 등)를 칸 목록으로 나눈다. 맨 앞이 주담당. */
+function splitDuty_(v) {
+  const out = [];
+  String(v === undefined || v === null ? '' : v).split(/[,，、·\/;\n]+/).forEach(function (t) {
+    t = t.replace(/\s+/g, ' ').trim();
+    if (t && out.indexOf(t) < 0) out.push(t);
+  });
+  return out;
+}
+
+/** 직책·담당업무 입력 점검. 문제가 있으면 {err}, 없으면 {title, duty}(정리된 값). 입력이 없으면 해당 항목은 undefined. */
+function orgFields_(title, duty) {
+  const o = {};
+  if (title !== undefined) {
+    const t = String(title).replace(/\s+/g, ' ').trim();
+    if (t.length > 20) return { err: fail_('PARAM', '직책은 20자 이내로 입력해 주세요.') };
+    o.title = cleanText_(t);
+  }
+  if (duty !== undefined) {
+    const d = splitDuty_(duty);
+    if (d.length > DUTY_MAX) return { err: fail_('PARAM', '담당업무는 ' + DUTY_MAX + '가지까지 입력할 수 있습니다.') };
+    for (let i = 0; i < d.length; i++) if (d[i].length > 12) return { err: fail_('PARAM', '담당업무 한 항목은 12자 이내로 입력해 주세요. (' + d[i] + ')') };
+    o.duty = cleanText_(d.join(','));
+  }
+  return o;
+}
 
 function nowStr_() { return Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss'); }
 
@@ -2380,7 +2491,7 @@ function listTasks_(req) {
   const open = rows.filter(function (o) { return o.status === TST.OPEN; }).sort(taskOrder_);
   const done = rows.filter(function (o) { return o.status === TST.DONE; }).sort(function (a, b) { return a.doneAt < b.doneAt ? 1 : a.doneAt > b.doneAt ? -1 : 0; }).slice(0, 100);
   let staff = [];
-  if (isGm) staff = readUsers_(ensureUsersSheet_(getDb_())).filter(function (r) { return r[COL.active] === 'Y'; }).map(function (r) { return { id: String(r[COL.id]), name: String(r[COL.name]), role: String(r[COL.role]) }; });
+  if (isGm) staff = readUsers_(ensureUsersSheet_(getDb_())).filter(function (r) { return r[COL.active] === 'Y'; }).map(function (r) { return { id: String(r[COL.id]), name: String(r[COL.name]), role: String(r[COL.role]), title: String(r[COL.title] || ''), duty: splitDuty_(r[COL.duty]).join(', ') }; });
   return { ok: true, today: today, items: open.concat(done).map(function (o) { return taskPublic_(o, today); }), staff: staff, canAssign: isGm };
 }
 
