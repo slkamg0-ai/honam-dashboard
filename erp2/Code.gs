@@ -76,7 +76,7 @@ function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.8' }; }
+function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.9' }; }
 
 function route_(req) {
   const t0 = Date.now();
@@ -116,6 +116,10 @@ function route_(req) {
       case 'linkDoc': out = linkDoc_(req); break;
       case 'hqDoc': out = hqDoc_(req); break;
     case 'gapjiDoc': out = gapjiDoc_(req); break;
+    case 'uploadDocFile': out = uploadDocFile_(req); break;
+    case 'deleteDocFile': out = deleteDocFile_(req); break;
+    case 'getDocFile': out = getDocFile_(req); break;
+    case 'verifyDoc': out = verifyDoc_(req); break;
       default: out = fail_('UNKNOWN_ACTION', '알 수 없는 요청입니다.');
     }
   } catch (err) {
@@ -1311,7 +1315,7 @@ const DOC_FIELDS = [['id', 'ID'], ['docNo', '문서번호'], ['kind', '구분'],
   ['due', '회신기한'], ['replied', '회신여부'], ['link', '문서링크'], ['docId', '문서ID'], ['folderId', '폴더ID'], ['pdf', '확정PDF'], ['ref', '참조'],
   ['summary', '본문요지'], ['attach', '붙임'], ['note', '비고'], ['authorId', '작성자ID'], ['author', '작성자'], ['reviewer', '검토자'], ['reviewedAt', '검토일시'],
   ['approver', '승인자'], ['approvedAt', '승인일시'], ['reason', '반려사유'], ['hq', '본사상태'], ['hqBy', '본사처리자'], ['hqAt', '본사처리일시'],
-  ['hqSubmitAt', '본사제출일시'], ['hqNote', '본사메모'], ['created', '작성일시'], ['updated', '수정일시'], ['cat', '문서구분'], ['amount', '집행금액'], ['gapji', '갑지PDF']];
+  ['hqSubmitAt', '본사제출일시'], ['hqNote', '본사메모'], ['created', '작성일시'], ['updated', '수정일시'], ['cat', '문서구분'], ['amount', '집행금액'], ['gapji', '갑지PDF'], ['files', '첨부파일'], ['seal', '문서해시']];
 // 문서구분(갑지의 분류): 품의와 공문에만 있다. 이름만 저장한다.
 const DOC_CATS = { '품의': ['현장품의', '본사품의', '변경품의'], '공문': ['본사문서', '대관공문', '안전점검', '기타'] };
 const DOC_HEADERS = DOC_FIELDS.map(function (f) { return f[1]; });
@@ -1371,7 +1375,8 @@ function docPublic_(o) {
     id: o.id, docNo: o.docNo, kind: o.kind, date: o.date, party: o.party, title: o.title, status: o.status, due: o.due, replied: o.replied === 'Y',
     link: o.link, folderUrl: folderUrl_(o.folderId), pdf: o.pdf, ref: o.ref, summary: o.summary, attach: o.attach, note: o.note,
     authorId: o.authorId, author: o.author, reviewer: o.reviewer, reviewedAt: o.reviewedAt, approver: o.approver, approvedAt: o.approvedAt, reason: o.reason,
-    hq: { state: o.hq, by: o.hqBy, at: o.hqAt, submitAt: o.hqSubmitAt, note: o.hqNote }, created: o.created, updated: o.updated, cat: o.cat, amount: o.amount, gapji: o.gapji
+    hq: { state: o.hq, by: o.hqBy, at: o.hqAt, submitAt: o.hqSubmitAt, note: o.hqNote }, created: o.created, updated: o.updated, cat: o.cat, amount: o.amount, gapji: o.gapji,
+    files: docFilesOf_(o).map(docFilePublic_), seal: o.seal || ''
   };
 }
 
@@ -1489,6 +1494,7 @@ const GJ_CAT_LONG = { '현장품의': '[현장품의] 하도급 기성 / 자재 
 const GJ_MGR_DEFAULT = '임석인';
 
 function gjEsc_(t) { return String(t === undefined || t === null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function gjSize_(n) { n = Number(n) || 0; return n >= 1048576 ? (n / 1048576).toFixed(1) + 'MB' : Math.max(1, Math.round(n / 1024)) + 'KB'; }
 function gjMmdd_(s) { s = String(s || ''); return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(5, 7) + '/' + s.slice(8, 10) : ''; }
 
 /** 화면의 갑지와 같은 내용을 표(table)로만 짠 HTML (PDF 변환기는 flex·grid 를 지원하지 않는다) */
@@ -1539,9 +1545,20 @@ function gapjiHtml_(o) {
   h.push(row('제 목', '', gjEsc_(o.title), 'font-weight:bold;font-size:13px'));
   if (o.kind === '품의') h.push(row('집행금액', '', gjEsc_(o.amount), 'font-weight:bold;color:#1d4ed8;height:24px'));
   h.push(row(o.kind === '품의' ? '기안요약' : '발신요약', '(표준갑지)', summary, 'height:260px;vertical-align:top;line-height:1.7;padding:10px', 'vertical-align:top;padding-top:12px'));
-  h.push(row(o.kind === '공문' ? '붙 임' : '붙임/첨부', '', gjEsc_(o.attach), 'height:40px'));
+  const gfiles = docFilesOf_(o);
+  let attachHtml = gjEsc_(o.attach);
+  if (gfiles.length) {
+    const T1 = 'border:1px solid #94a3b8;background:#f8fafc;font-size:9px;padding:2px', T2 = 'border:1px solid #94a3b8;font-size:9px;padding:2px';
+    attachHtml += '<table style="width:100%;border-collapse:collapse;margin-top:6px"><tr><th style="' + T1 + ';width:22px">No</th><th style="' + T1 + '">파일명</th><th style="' + T1 + ';width:46px">크기</th><th style="' + T1 + ';width:300px">SHA-256</th></tr>';
+    gfiles.forEach(function (f, k) {
+      attachHtml += '<tr><td style="' + T2 + ';text-align:center">' + (k + 1) + '</td><td style="' + T2 + '">' + gjEsc_(f.name) + '</td><td style="' + T2 + ';text-align:right">' + gjEsc_(gjSize_(f.size)) + '</td><td style="' + T2 + ';font-size:7px;font-family:monospace;word-break:break-all">' + gjEsc_(f.sha) + '</td></tr>';
+    });
+    attachHtml += '</table>';
+  }
+  h.push(row(o.kind === '공문' ? '붙 임' : '붙임/첨부', '', attachHtml, 'height:40px'));
   h.push('</table>');
   h.push('<div style="margin-top:26px;text-align:center;font-size:14px;font-weight:bold;letter-spacing:1px">' + gjEsc_((o.kind === '품의' ? '' : '(주)동우건설 ') + '호남고속선 재해예방공사 현장 현장소장 ' + mgrName) + '</div>');
+  if (o.seal) h.push('<div style="margin-top:12px;text-align:center;font-size:8px;color:#475569;font-family:monospace">문서 SHA-256 봉인(확정 시): ' + gjEsc_(o.seal) + '</div>');
   h.push('</div></body></html>');
   return h.join('');
 }
@@ -1562,6 +1579,7 @@ function docMakeGapji_(o) {
 /** 갑지 PDF 를 새로 만들어 o.gapji 에 담는다. 경고 문장 배열을 돌려준다. */
 function gapjiRefresh_(o) {
   if (o.kind === '접수') return [];
+  if (o.status === DST.DONE && !o.seal) o.seal = docSeal_(o); // 확정된 문서의 내용·첨부 해시를 한 번 찍어 둔다
   const u = docMakeGapji_(o);
   if (u) { o.gapji = u; return []; }
   return ['갑지 PDF를 만들지 못했습니다. 상세 화면의 「갑지 PDF 다시 만들기」로 다시 해 볼 수 있습니다.'];
@@ -1593,12 +1611,152 @@ function gapjiDoc_(req) {
 function gapjiSample() {
   const o = { docNo: '호남-품의-2026-004', kind: '품의', cat: '현장품의', date: '2026-11-09', party: '회장', title: '우기 대비 배수시설 보강 자재 반입 검수 및 기성 품의', amount: '64,200,000원 (부가세 별도)',
     summary: '1. 호남고속선 정읍~광주송정 등 28개소 재해예방공사 관련입니다.\n2. 정읍~장성 구간 사면 배수시설 및 낙석방지책 설치 공종에 투입된 주요 자재 반입 검수 및 금회 기성 산출 내역을 붙임과 같이 상신하오니 승인하여 주시기 바랍니다.',
-    attach: '검수조서 1부, 기성내역서 엑셀', author: '곽호진', status: DST.DONE, approver: '임석인', approvedAt: '2026-11-09 10:20:00', hq: '확인', hqBy: '임석인', hqAt: '2026-11-10 09:00:00' };
+    attach: '검수조서 1부, 기성내역서 엑셀', author: '곽호진', status: DST.DONE, approver: '임석인', approvedAt: '2026-11-09 10:20:00', hq: '확인', hqBy: '임석인', hqAt: '2026-11-10 09:00:00',
+    files: JSON.stringify([{ n: 1, name: '검수조서_배수시설_자재반입.hwpx', size: 431104, sha: sha256Hex_('sample-1') }, { n: 2, name: '기성내역서_11월분.xlsx', size: 1178624, sha: sha256Hex_('sample-2') }]) };
+  o.seal = docSeal_(o);
   const blob = Utilities.newBlob(gapjiHtml_(o), 'text/html', 'gapji.html').getAs('application/pdf').setName('HN28_갑지PDF_시험.pdf');
   const it = DriveApp.getRootFolder().getFilesByName('HN28_갑지PDF_시험.pdf');
   while (it.hasNext()) it.next().setTrashed(true);
   const f = DriveApp.getRootFolder().createFile(blob);
   Logger.log('갑지 시험 PDF: ' + f.getId());
+}
+
+// ── 첨부파일(HWP·XLSX 등) + SHA-256 ──
+const MAX_DOC_FILES = 10;
+const MAX_DOC_FILE_BYTES = 8 * 1024 * 1024; // 한 번에 보내는 한계가 있어 파일당 8MB
+const MAX_DOC_FILE_B64 = Math.ceil(MAX_DOC_FILE_BYTES / 3) * 4 + 4;
+// 확장자 → 파일 머리 모양(있으면 맞는지 확인한다). 빈 값은 머리 모양을 보지 않는다.
+const DOC_FILE_TYPES = { hwp: 'ole', hwpx: 'zip', xlsx: 'zip', xls: 'ole', docx: 'zip', doc: 'ole', pptx: 'zip', ppt: 'ole', pdf: 'pdf', jpg: 'jpg', jpeg: 'jpg', png: 'png', zip: 'zip', dwg: '', dxf: '', txt: '', csv: '' };
+
+function sha256Hex_(v) {
+  const d = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, v);
+  return d.map(function (b) { return ('0' + ((b < 0 ? b + 256 : b) & 255).toString(16)).slice(-2); }).join('');
+}
+function docFilesOf_(o) { try { const a = JSON.parse(o.files || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+function docFilePublic_(f) { return { n: f.n, name: f.name, size: f.size, sha: f.sha, by: f.by, at: f.at }; }
+
+function docFileName_(raw) {
+  let n = String(raw === undefined || raw === null ? '' : raw).replace(/[\u0000-\u001f\u007f]/g, '').replace(/[\\\/:*?"<>|#%]+/g, '_').replace(/\s{2,}/g, ' ').trim();
+  if (n.length > 80) { const dot = n.lastIndexOf('.'); const ext = dot > 0 && n.length - dot <= 8 ? n.slice(dot) : ''; n = n.slice(0, 80 - ext.length) + ext; }
+  return n;
+}
+function docFileExt_(name) { const m = /\.([A-Za-z0-9]{1,6})$/.exec(name); return m ? m[1].toLowerCase() : ''; }
+function docFileHeadOk_(kind, b) {
+  const u = function (i) { return b[i] === undefined ? -1 : (b[i] & 255); };
+  if (kind === 'pdf') return u(0) === 0x25 && u(1) === 0x50 && u(2) === 0x44 && u(3) === 0x46;
+  if (kind === 'zip') return u(0) === 0x50 && u(1) === 0x4B;
+  if (kind === 'ole') return u(0) === 0xD0 && u(1) === 0xCF && u(2) === 0x11 && u(3) === 0xE0;
+  if (kind === 'jpg') return u(0) === 0xFF && u(1) === 0xD8 && u(2) === 0xFF;
+  if (kind === 'png') return u(0) === 0x89 && u(1) === 0x50 && u(2) === 0x4E && u(3) === 0x47;
+  return true;
+}
+
+/** 이 사람이 이 문서의 첨부를 올리고 지울 수 있는가 (문서를 고칠 수 있는 사람·상태와 같다). 못 하면 오류 응답. */
+function docFileGuard_(o, me) {
+  if (o.status === DST.VOID) return fail_('STATE', '결번 처리된 문서에는 파일을 붙일 수 없습니다.');
+  if (o.kind === '접수') { if (o.authorId !== me.id && me.role !== MANAGER_ROLE && me.role !== '공무') return fail_('FORBIDDEN', '접수한 사람 또는 공무·현장소장만 파일을 바꿀 수 있습니다.'); return null; }
+  if (o.authorId !== me.id) return fail_('FORBIDDEN', '본인이 쓴 문서에만 파일을 붙일 수 있습니다.');
+  if (o.status !== DST.DRAFT && o.status !== DST.REJECT) return fail_('STATE', '제출된 문서의 첨부는 바꿀 수 없습니다. 반려된 뒤에 바꿀 수 있습니다.');
+  return null;
+}
+
+function uploadDocFile_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s;
+  const name = docFileName_(req.name);
+  const ext = docFileExt_(name);
+  if (!name || !Object.prototype.hasOwnProperty.call(DOC_FILE_TYPES, ext)) return fail_('FILE', '올릴 수 없는 파일 종류입니다. (hwp·hwpx·xlsx·xls·docx·doc·pptx·ppt·pdf·jpg·png·zip·dwg·dxf·txt·csv)');
+  const data = String(req.data || '');
+  if (!data || data.length > MAX_DOC_FILE_B64 || !/^[A-Za-z0-9+\/=]+$/.test(data)) return fail_('FILE', '파일이 비었거나 너무 큽니다. (파일당 ' + (MAX_DOC_FILE_BYTES / 1048576) + 'MB까지)');
+  const want = String(req.sha || '').toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(want)) return fail_('PARAM', '파일 확인값(SHA-256)이 없습니다. 화면을 새로고침해 주세요.');
+  let bytes;
+  try { bytes = Utilities.base64Decode(data); } catch (e) { return fail_('FILE', '파일을 읽지 못했습니다.'); }
+  if (!bytes.length || bytes.length > MAX_DOC_FILE_BYTES) return fail_('FILE', '파일이 비었거나 너무 큽니다. (파일당 ' + (MAX_DOC_FILE_BYTES / 1048576) + 'MB까지)');
+  if (!docFileHeadOk_(DOC_FILE_TYPES[ext], bytes)) return fail_('FILE', '파일 내용이 확장자(.' + ext + ')와 맞지 않습니다. 파일이 깨졌거나 이름만 바꾼 파일일 수 있습니다.');
+  const sha = sha256Hex_(bytes);
+  if (sha !== want) return fail_('HASH', '전송 중 파일이 달라졌습니다(SHA-256 불일치). 다시 올려 주세요.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sh = ensureDocSheet_(getDb_());
+    const o = docFind_(sh, String(req.id || ''));
+    if (!o) return fail_('NOT_FOUND', '없는 문서입니다.');
+    const guard = docFileGuard_(o, me); if (guard) return guard;
+    const files = docFilesOf_(o);
+    if (files.length >= MAX_DOC_FILES) return fail_('FILE', '파일은 문서당 최대 ' + MAX_DOC_FILES + '개까지 붙일 수 있습니다.');
+    for (let k = 0; k < files.length; k++) if (files[k].sha === sha) return fail_('DUP', '같은 파일이 이미 붙어 있습니다. (' + files[k].name + ')');
+    if (!o.folderId) return fail_('FOLDER', '이 문서에는 드라이브 폴더가 없어 파일을 저장할 수 없습니다.');
+    const n = files.reduce(function (m, f) { return Math.max(m, Number(f.n) || 0); }, 0) + 1;
+    let fid;
+    try {
+      const f = DriveApp.getFolderById(o.folderId).createFile(Utilities.newBlob(bytes, 'application/octet-stream', '첨부' + pad_(n, 2) + '_' + name));
+      fid = f.getId();
+    } catch (e) { return fail_('DRIVE', '드라이브에 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.'); }
+    files.push({ n: n, fid: fid, name: name, size: bytes.length, sha: sha, by: me.name, at: nowStr_() });
+    o.files = JSON.stringify(files);
+    docWrite_(sh, o, o._row);
+    audit_(me.id, '문서첨부', o.docNo + ' ' + name + ' ' + sha.slice(0, 12));
+    return { ok: true, item: docPublic_(o), file: docFilePublic_(files[files.length - 1]) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function deleteDocFile_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const sh = ensureDocSheet_(getDb_());
+    const o = docFind_(sh, String(req.id || ''));
+    if (!o) return fail_('NOT_FOUND', '없는 문서입니다.');
+    const guard = docFileGuard_(o, me); if (guard) return guard;
+    const files = docFilesOf_(o);
+    const k = files.map(function (f) { return Number(f.n); }).indexOf(Number(req.n));
+    if (k < 0) return fail_('NOT_FOUND', '없는 첨부파일입니다.');
+    const f = files[k];
+    try { DriveApp.getFileById(f.fid).setTrashed(true); } catch (e) { /* 이미 없으면 목록에서만 뺀다 */ }
+    files.splice(k, 1);
+    o.files = JSON.stringify(files);
+    docWrite_(sh, o, o._row);
+    audit_(me.id, '문서첨부삭제', o.docNo + ' ' + f.name + ' ' + String(f.sha).slice(0, 12));
+    return { ok: true, item: docPublic_(o) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function getDocFile_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const o = docFind_(ensureDocSheet_(getDb_()), String(req.id || ''));
+  if (!o) return fail_('NOT_FOUND', '없는 문서입니다.');
+  const f = docFilesOf_(o).filter(function (x) { return Number(x.n) === Number(req.n); })[0];
+  if (!f) return fail_('NOT_FOUND', '없는 첨부파일입니다.');
+  let bytes;
+  try { bytes = DriveApp.getFileById(f.fid).getBlob().getBytes(); } catch (e) { return fail_('NOT_FOUND', '드라이브에서 파일을 찾을 수 없습니다.'); }
+  return { ok: true, name: f.name, size: f.size, sha: f.sha, data: Utilities.base64Encode(bytes) };
+}
+
+/** 확정 때 찍는 문서 해시(봉인): 문서 내용 + 첨부파일 이름·SHA-256 */
+function docSeal_(o) {
+  const files = docFilesOf_(o).map(function (f) { return f.n + ':' + f.name + ':' + f.sha; }).join('|');
+  return sha256Hex_(['HN28v1', o.docNo, o.kind, o.cat, o.date, o.party, o.title, o.amount, o.summary, o.attach, o.ref, files].join('\n'));
+}
+/** 봉인이 지금 내용과 같은지, 첨부파일이 그대로인지 다시 계산해 본다. */
+function verifyDoc_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const o = docFind_(ensureDocSheet_(getDb_()), String(req.id || ''));
+  if (!o) return fail_('NOT_FOUND', '없는 문서입니다.');
+  if (o.kind === '접수' || o.status !== DST.DONE) return fail_('STATE', '확정된 품의·공문만 확인할 수 있습니다.');
+  if (!o.seal) return fail_('STATE', '문서 해시가 아직 없습니다. 「갑지 PDF 만들기」를 누르면 만들어집니다.');
+  const files = docFilesOf_(o).map(function (f) {
+    let ok = false, missing = false;
+    try { ok = sha256Hex_(DriveApp.getFileById(f.fid).getBlob().getBytes()) === f.sha; } catch (e) { missing = true; }
+    return { n: f.n, name: f.name, ok: ok, missing: missing };
+  });
+  return { ok: true, sealOk: docSeal_(o) === o.seal, seal: o.seal, files: files };
 }
 
 function docValidate_(req, kind) {
