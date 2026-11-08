@@ -57,13 +57,13 @@
   function sheetOfItem(i) {
     return { kind: i.kind, docNo: i.docNo, date: i.date, cat: i.cat, party: i.party, title: i.title, amount: i.amount, summary: i.summary, attach: i.attach, author: i.author, status: i.status,
       drafted: i.status === '검토대기' || i.status === '승인대기' || i.status === '확정', approver: i.status === '확정' ? i.approver : '', approvedAt: i.approvedAt,
-      hq: i.hq || {}, mgr: (i.status === '확정' && i.approver) || MGR_NAME };
+      hq: i.hq || {}, mgr: (i.status === '확정' && i.approver) || MGR_NAME, files: i.files || [], seal: i.seal || '' };
   }
   /** 쓰는 중인 양식 → 갑지에 들어갈 값 (아직 제출 전이므로 도장은 모두 비어 있다) */
   function sheetOfForm() {
     var v = collect(), me = E.me();
     return { kind: F.kind, docNo: F.docNo || ((next[F.kind] || '') + ' (예정)'), date: v.date, cat: v.cat, party: v.party, title: v.title, amount: v.amount, summary: v.summary, attach: v.attach,
-      author: F.author || (me ? me.name : ''), status: '작성중', drafted: false, approver: '', approvedAt: '', hq: {}, mgr: MGR_NAME };
+      author: F.author || (me ? me.name : ''), status: '작성중', drafted: false, approver: '', approvedAt: '', hq: {}, mgr: MGR_NAME, files: formFiles(), seal: '' };
   }
 
   function buildSheet(m) {
@@ -107,10 +107,22 @@
     if (m.kind === '품의') brow('집행금액', '', txt(m.amount), { fontWeight: '700', color: '#1d4ed8', height: '28px' });
     var sr = brow(m.kind === '품의' ? '기안요약' : '발신요약', '(표준갑지)', txt(m.summary, '(본문 요지 미입력)'), { height: '155px', verticalAlign: 'top', whiteSpace: 'pre-wrap', lineHeight: '1.65', padding: '12px' });
     sr.firstChild.style.verticalAlign = 'top'; sr.firstChild.style.paddingTop = '14px';
-    brow(m.kind === '공문' ? '붙 임' : '붙임/첨부', '', txt(m.attach, '(없음)'), { padding: '8px 10px' });
+    var files = m.files || [];
+    brow(m.kind === '공문' ? '붙 임' : '붙임/첨부', '', function (td) {
+      if (m.attach) td.textContent = m.attach; else if (!files.length) td.appendChild(ph('(없음)'));
+      if (files.length) {
+        var ft = el('table', 'gj-files'); td.appendChild(ft);
+        var hr = ft.appendChild(el('tr')); ['No', '파일명', '크기', 'SHA-256'].forEach(function (h) { hr.appendChild(el('th', '', h)); });
+        files.forEach(function (f, k) {
+          var tr = ft.appendChild(el('tr')); tr.appendChild(el('td', '', String(k + 1))); tr.appendChild(el('td', '', f.name)); tr.appendChild(el('td', '', fmtSize(f.size)));
+          tr.appendChild(el('td', 'hx', f.sha || '계산 중…'));
+        });
+      }
+    }, { padding: '8px 10px' });
 
     // 품의는 회사 안(본사)으로 올리는 문서라 회사명을 빼고, 공문은 밖으로 나가므로 회사명을 쓴다
     var f = el('div', 'gj-foot', (m.kind === '품의' ? '' : '(주)동우건설 ') + '호남고속선 재해예방공사 현장 현장소장 ' + (m.mgr || MGR_NAME)); S.appendChild(f);
+    if (m.seal) S.appendChild(el('div', 'gj-sealline', '문서 SHA-256 봉인(확정 시): ' + m.seal));
     return S;
   }
   /** 화면 너비에 맞춰 줄인다(숨은 화면은 건너뛴다) */
@@ -141,7 +153,7 @@
     });
   }
   E.onEnter.push(refreshBadge);
-  E.onLeave.push(function () { items = []; next = {}; F = null; filter = 'all'; query = ''; $('dItems').textContent = ''; $('dDetail').textContent = ''; $('dSum').textContent = ''; $('dSearch').value = ''; $('dPrev').textContent = ''; });
+  E.onLeave.push(function () { items = []; next = {}; F = null; filter = 'all'; query = ''; $('dItems').textContent = ''; $('dDetail').textContent = ''; $('dSum').textContent = ''; $('dSearch').value = ''; $('dPrev').textContent = ''; $('dFileList').textContent = ''; });
 
   // ── 목록 ──
   function openList() { E.showView('vDoc'); pane('list'); buildFilters(); load(); }
@@ -209,6 +221,7 @@
       var r3 = el('div', 'r2');
       var ri = replyInfo(i);
       if (i.hq && i.hq.state) r3.appendChild(el('span', 'st st-hq', '본사 ' + i.hq.state));
+      if (i.files && i.files.length) r3.appendChild(el('span', 'st st-접수', '첨부 ' + i.files.length));
       if (ri) r3.appendChild(el('span', 'st ' + (ri.late ? 'st-반려' : 'st-검토대기'), ri.late ? '회신 ' + (-ri.days) + '일 지연' : ri.days === 0 ? '오늘 회신기한' : '회신 D-' + ri.days));
       if (i.kind !== '품의' && i.replied) r3.appendChild(el('span', 'st st-승인', '회신 완료'));
       if (needsMe(i)) r3.appendChild(el('span', 'st st-검토대기', '내 차례'));
@@ -216,6 +229,131 @@
       c.onclick = function () { showDetail(i); };
       c.onkeydown = function (ev) { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); showDetail(i); } };
       box.appendChild(c);
+    });
+  }
+
+  // ── 첨부파일: 크기·종류·SHA-256 ──
+  var MAX_FILES = 10, MAX_BYTES = 8 * 1024 * 1024;
+  var EXTS = ['hwp', 'hwpx', 'xlsx', 'xls', 'docx', 'doc', 'pptx', 'ppt', 'pdf', 'jpg', 'jpeg', 'png', 'zip', 'dwg', 'dxf', 'txt', 'csv'];
+  function fmtSize(n) { n = Number(n) || 0; return n >= 1048576 ? (n / 1048576).toFixed(1) + 'MB' : Math.max(1, Math.round(n / 1024)) + 'KB'; }
+  function extOf(name) { var m = /\.([A-Za-z0-9]{1,6})$/.exec(String(name || '')); return m ? m[1].toLowerCase() : ''; }
+  function hex(buf) { var a = new Uint8Array(buf), s = ''; for (var k = 0; k < a.length; k++) s += (a[k] < 16 ? '0' : '') + a[k].toString(16); return s; }
+  function canHash() { return !!(window.crypto && window.crypto.subtle); }
+  function readBuf(file) {
+    return new Promise(function (ok, no) { var r = new FileReader(); r.onload = function () { ok(r.result); }; r.onerror = function () { no(r.error); }; r.readAsArrayBuffer(file); });
+  }
+  function sha256Of(buf) { return window.crypto.subtle.digest('SHA-256', buf).then(hex); }
+  function toB64(buf) {
+    var a = new Uint8Array(buf), s = '', step = 0x8000;
+    for (var k = 0; k < a.length; k += step) s += String.fromCharCode.apply(null, a.subarray(k, k + step));
+    return btoa(s);
+  }
+  function fromB64(b64) { var bin = atob(b64), a = new Uint8Array(bin.length); for (var k = 0; k < bin.length; k++) a[k] = bin.charCodeAt(k); return a; }
+
+  /** 양식에서 지금 붙어 있을(저장이 끝나면) 파일 목록 — 갑지 미리보기용 */
+  function formFiles() {
+    if (!F) return [];
+    var out = (F.have || []).filter(function (f) { return F.drop.indexOf(f.n) < 0; }).map(function (f) { return { name: f.name, size: f.size, sha: f.sha }; });
+    (F.pend || []).forEach(function (p) { out.push({ name: p.name, size: p.size, sha: p.sha || '' }); });
+    return out;
+  }
+  function fileCount() { return formFiles().length; }
+  function drawFiles() {
+    var box = $('dFileList'); box.textContent = '';
+    (F.have || []).forEach(function (f) {
+      var gone = F.drop.indexOf(f.n) >= 0;
+      var r = el('div', 'fr' + (gone ? ' gone' : '')); var nm = el('span', 'nm', f.name); nm.appendChild(el('span', 'sub', fmtSize(f.size) + ' · SHA-256 ' + String(f.sha).slice(0, 16) + '…' + (gone ? ' · 저장하면 삭제됩니다' : '')));
+      r.appendChild(nm); var b = el('button', '', gone ? '되돌리기' : '삭제'); b.type = 'button';
+      b.onclick = function () { var at = F.drop.indexOf(f.n); if (at >= 0) F.drop.splice(at, 1); else F.drop.push(f.n); drawFiles(); drawPrev(); };
+      r.appendChild(b); box.appendChild(r);
+    });
+    (F.pend || []).forEach(function (p) {
+      var r = el('div', 'fr'); var nm = el('span', 'nm', p.name); nm.appendChild(el('span', 'sub', fmtSize(p.size) + ' · ' + (p.sha ? 'SHA-256 ' + p.sha.slice(0, 16) + '…' : '확인값 계산 중…') + ' · 저장하면 올라갑니다'));
+      r.appendChild(nm); var b = el('button', '', '빼기'); b.type = 'button';
+      b.onclick = function () { var at = F.pend.indexOf(p); if (at >= 0) F.pend.splice(at, 1); drawFiles(); drawPrev(); };
+      r.appendChild(b); box.appendChild(r);
+    });
+  }
+  function pickFiles(list) {
+    var bad = [];
+    for (var k = 0; k < list.length; k++) {
+      var f = list[k];
+      if (EXTS.indexOf(extOf(f.name)) < 0) { bad.push(f.name + ' (올릴 수 없는 종류)'); continue; }
+      if (!f.size) { bad.push(f.name + ' (빈 파일)'); continue; }
+      if (f.size > MAX_BYTES) { bad.push(f.name + ' (' + fmtSize(f.size) + ' — 8MB 초과)'); continue; }
+      if (fileCount() >= MAX_FILES) { bad.push(f.name + ' (최대 ' + MAX_FILES + '개)'); continue; }
+      if (formFiles().some(function (x) { return x.name === f.name && x.size === f.size; })) { bad.push(f.name + ' (이미 있음)'); continue; }
+      (function (file) {
+        var p = { file: file, name: file.name, size: file.size, sha: '' }; F.pend.push(p);
+        readBuf(file).then(sha256Of).then(function (h) { p.sha = h; }, function () { p.err = true; }).then(function () {
+          if (p.err) { var at = F.pend.indexOf(p); if (at >= 0) F.pend.splice(at, 1); setMsg('dFMsg', file.name + ' 파일을 읽지 못했습니다.'); }
+          if (F) { drawFiles(); drawPrev(); }
+        });
+      })(f);
+    }
+    if (bad.length) setMsg('dFMsg', '붙이지 못한 파일:\n' + bad.join('\n')); else setMsg('dFMsg', '');
+    if (!$('dAttach').value.trim() && F.pend.length) $('dAttach').value = F.pend.map(function (p) { return p.name; }).join(', ').slice(0, 200);
+    drawFiles(); drawPrev();
+  }
+  $('dFileIn').onchange = function () {
+    var list = Array.prototype.slice.call(this.files || []); this.value = '';
+    if (!F || !list.length) return;
+    if (!canHash()) { setMsg('dFMsg', '이 브라우저에서는 파일 확인값(SHA-256)을 만들 수 없어 파일을 붙일 수 없습니다. 최신 크롬·엣지·사파리에서 열어 주세요.'); return; }
+    pickFiles(list);
+  };
+  /** 저장이 끝난 문서에 파일을 하나씩 올리고(삭제 먼저) 결과를 돌려준다: cb(실패 문구들, 마지막 문서, 로그인 끊김 여부) */
+  function syncFiles(item, cb) {
+    var jobs = [];
+    F.drop.forEach(function (n) { jobs.push({ del: n }); });
+    F.pend.forEach(function (p) { jobs.push({ up: p }); });
+    if (!jobs.length) { cb([], item, false); return; }
+    var fails = [], k = 0, cur = item;
+    function step() {
+      if (k >= jobs.length) { cb(fails, cur, false); return; }
+      var j = jobs[k++], label = j.up ? j.up.name : '삭제';
+      setMsg('dFMsg', '첨부 처리 중 (' + k + '/' + jobs.length + ') ' + label + ' …', true);
+      var done = function (r, what) {
+        if (E.authLost(r)) { cb(fails, cur, true); return; }
+        if (r && r.ok) cur = r.item; else fails.push(what + ': ' + ((r && r.message) || '처리하지 못했습니다.'));
+        step();
+      };
+      if (j.del) { E.api('deleteDocFile', { id: item.id, n: j.del }, 30000).then(function (r) { done(r, '파일 삭제'); }); return; }
+      var p = j.up;
+      if (!p.sha) { fails.push(p.name + ': 확인값이 아직 계산되지 않았습니다.'); step(); return; }
+      readBuf(p.file).then(function (buf) { return E.api('uploadDocFile', { id: item.id, name: p.name, sha: p.sha, data: toB64(buf) }, 180000); }, function () { return { ok: false, message: '파일을 읽지 못했습니다.' }; })
+        .then(function (r) { done(r, p.name); });
+    }
+    step();
+  }
+  function saveBlob(name, bytes) {
+    var url = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }));
+    var a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+  }
+  function downloadFile(i, f) {
+    if (busy) return; busy = true; setMsg('dDMsg', f.name + ' 내려받는 중…', true);
+    E.api('getDocFile', { id: i.id, n: f.n }, 120000).then(function (r) {
+      if (fail('dDMsg', r)) { busy = false; return; }
+      if (!r.ok) { busy = false; return; }
+      var bytes = fromB64(r.data);
+      sha256Of(bytes.buffer).then(function (h) {
+        busy = false;
+        if (h !== f.sha) { setMsg('dDMsg', '⚠ 내려받은 「' + f.name + '」의 SHA-256이 기록된 값과 다릅니다. 파일이 바뀌었을 수 있어 저장하지 않았습니다.'); return; }
+        saveBlob(f.name, bytes); setMsg('dDMsg', '「' + f.name + '」를 내려받았습니다. SHA-256이 기록과 같습니다.', true);
+      });
+    });
+  }
+  function verify(i) {
+    if (busy) return; busy = true; setMsg('dDMsg', '확인하는 중… (첨부파일을 다시 계산합니다)', true);
+    E.api('verifyDoc', { id: i.id }, 120000).then(function (r) {
+      busy = false;
+      if (fail('dDMsg', r)) return;
+      if (!r.ok) return;
+      var bad = [];
+      if (!r.sealOk) bad.push('문서 내용이 확정 때와 다릅니다');
+      r.files.forEach(function (f) { if (f.missing) bad.push('첨부 「' + f.name + '」 파일이 드라이브에 없습니다'); else if (!f.ok) bad.push('첨부 「' + f.name + '」 내용이 확정 때와 다릅니다'); });
+      if (!bad.length) setMsg('dDMsg', '무결성 확인: 문서 내용과 첨부 ' + r.files.length + '개가 확정 때와 같습니다.', true);
+      else setMsg('dDMsg', '⚠ 달라진 곳이 있습니다.\n' + bad.join('\n'));
     });
   }
 
@@ -251,12 +389,18 @@
     if (i.approver && i.status === '확정') kv(p, '승인', i.approver + ' · ' + i.approvedAt);
     if (i.hq && i.hq.state) kv(p, '본사', '본사 ' + i.hq.state + ' · ' + i.hq.by + ' · ' + String(i.hq.at).slice(0, 16) + (i.hq.state === '확인' && i.hq.submitAt ? ' (제출 ' + String(i.hq.submitAt).slice(0, 16) + ')' : '') + (i.hq.note ? ' · ' + i.hq.note : ''));
     if (i.note) kv(p, '비고', i.note);
+    var fbox = null;
+    if (i.files && i.files.length) { p.appendChild(el('div', 'desc', '첨부파일 ' + i.files.length + '개 (파일마다 SHA-256 기록)')).style.marginTop = '10px'; fbox = el('div', 'fl'); p.appendChild(fbox); }
 
     if (i.kind !== '접수' && i.status !== '결번') {
       var sp = el('div', 'panel'); sp.id = 'dDSheet'; box.appendChild(sp);
       sp.appendChild(el('h3', '', '갑지 (A4 기안문)')); var host = el('div'); sp.appendChild(host); paintSheet(host, sheetOfItem(i));
     }
     var area = el('div'); p.appendChild(area);
+    if (fbox) i.files.forEach(function (f) {
+      var r = el('div', 'fr'); var nm = el('span', 'nm', f.name); nm.appendChild(el('span', 'sub', fmtSize(f.size) + ' · SHA-256 ' + String(f.sha).slice(0, 16) + '… · ' + f.by));
+      r.appendChild(nm); var b = el('button', '', '내려받기'); b.type = 'button'; b.onclick = function () { downloadFile(i, f); }; r.appendChild(b); fbox.appendChild(r);
+    });
     var btns = el('div', 'row-btns'); area.appendChild(btns);
     var msg = el('div', 'msg'); msg.id = 'dDMsg'; p.appendChild(msg);
     if (flash) setMsg('dDMsg', flash, true);
@@ -309,6 +453,7 @@
       if (hqs && isMgr()) btn('본사 표시 취소', 'warn', function () { noteBox('취소 확정', '취소 사유 (필수, 기록으로 남습니다)', true, 'warn', function (v) { act('hqDoc', { id: i.id, step: '취소', note: v }, '본사 표시를 취소했습니다.'); }); });
     }
     if (i.kind !== '접수' && i.status === '확정' && (mine || isGm())) btn(i.gapji ? '갑지 PDF 다시 만들기' : '갑지 PDF 만들기', '', function () { act('gapjiDoc', { id: i.id }, '갑지 PDF를 만들었습니다.'); });
+    if (i.kind !== '접수' && i.status === '확정' && i.seal) btn('무결성 확인', '', function () { verify(i); });
     if (i.status !== '결번' && (mine || isGm())) btn('링크 바꾸기', '', linkBox);
     if ((i.status === '작성중' || i.status === '반려' || i.status === '접수') && (mine || isMgr())) {
       btn('결번 처리', 'warn', function () { noteBox('결번 확정', '결번 사유 (번호는 지우지 않고 기록으로 남깁니다)', true, 'warn', function (v) { act('voidDoc', { id: i.id, reason: v }, '결번으로 처리했습니다.'); }); });
@@ -323,7 +468,7 @@
     공문: { party: '수신처 (필수)', summary: '본문 요지 (문서 본문에 들어갑니다)', attach: '붙임', draft: '임시저장', ph: '예: 국가철도공단 광주건설사업단' },
     접수: { party: '보낸 곳 (필수)', summary: '내용 요지', attach: '첨부', draft: '접수 등록', ph: '예: 국가철도공단' } };
   function openForm(kind, item) {
-    F = { kind: kind, id: item ? item.id : '', docNo: item ? item.docNo : '', author: item ? item.author : '' };
+    F = { kind: kind, id: item ? item.id : '', docNo: item ? item.docNo : '', author: item ? item.author : '', have: item ? (item.files || []).slice() : [], drop: [], pend: [] };
     var L = LABELS[kind];
     $('dFTitle').textContent = (item ? kind + ' 수정 · ' + item.docNo : kind + (kind === '접수' ? ' 등록' : ' 쓰기') + (next[kind] ? ' · ' + next[kind] : ''));
     $('dPartyL').textContent = L.party; $('dParty').placeholder = L.ph; $('dSummaryL').textContent = L.summary; $('dAttachL').textContent = L.attach;
@@ -339,7 +484,7 @@
     prevOpen = window.innerWidth >= 600; syncPrevToggle();
     show('dRefWrap', kind !== '접수'); show('dDueWrap', kind !== '품의'); show('dSubmit', kind !== '접수');
     $('dDraft').textContent = item && kind !== '접수' ? '저장' : L.draft;
-    setMsg('dFMsg', ''); pane('form'); drawPrev(); setTimeout(function () { $('dTitle').focus(); }, 30);
+    drawFiles(); setMsg('dFMsg', ''); pane('form'); drawPrev(); setTimeout(function () { $('dTitle').focus(); }, 30);
   }
   $('dNewP').onclick = function () { openForm('품의'); };
   $('dNewG').onclick = function () { openForm('공문'); };
@@ -368,12 +513,20 @@
       if (E.authLost(r)) { done(); return; }
       if (!r.ok) { done(); setMsg('dFMsg', r.message || '저장하지 못했습니다.'); return; }
       var warn = (r.warn || []).join(' ');
-      if (!thenSubmit) { done(); showDetail(r.item, '저장했습니다. 번호 ' + r.item.docNo + (warn ? '\n※ ' + warn : '')); return; }
-      E.api('submitDoc', { id: r.item.id }, 40000).then(function (s) {
-        done();
-        if (E.authLost(s)) return;
-        if (!s.ok) { showDetail(r.item, '저장은 했지만 제출하지 못했습니다: ' + (s.message || '') + (warn ? '\n※ ' + warn : '')); return; }
-        showDetail(s.item, (isMgr() ? '확정했습니다.' : '제출했습니다.') + ' 번호 ' + s.item.docNo + (warn ? '\n※ ' + warn : ''));
+      syncFiles(r.item, function (fails, cur, lost) {
+        if (lost) { done(); return; }
+        var fnote = fails.length ? '\n※ 첨부 ' + fails.length + '건을 처리하지 못했습니다:\n' + fails.join('\n') : '';
+        if (!thenSubmit || fails.length) {
+          done();
+          showDetail(cur, (thenSubmit ? '저장했습니다. 첨부에 문제가 있어 제출하지 않았습니다. 「수정」에서 다시 올린 뒤 제출해 주세요. 번호 ' : '저장했습니다. 번호 ') + cur.docNo + (warn ? '\n※ ' + warn : '') + fnote);
+          return;
+        }
+        E.api('submitDoc', { id: cur.id }, 40000).then(function (s) {
+          done();
+          if (E.authLost(s)) return;
+          if (!s.ok) { showDetail(cur, '저장은 했지만 제출하지 못했습니다: ' + (s.message || '') + (warn ? '\n※ ' + warn : '')); return; }
+          showDetail(s.item, (isMgr() ? '확정했습니다.' : '제출했습니다.') + ' 번호 ' + s.item.docNo + (warn ? '\n※ ' + warn : '') + ((s.warn && s.warn.length) ? '\n※ ' + s.warn.join(' ') : ''));
+        });
       });
     });
   }

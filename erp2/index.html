@@ -113,6 +113,11 @@
   .gj-seal small { font-size: 8.5px; font-weight: 700; }
   .gj-box { font-size: 9.5px; font-weight: 800; line-height: 1.3; border: 2px solid; border-radius: 4px; padding: 3px 2px; display: inline-block; min-width: 54px; }
   .gj-foot { margin-top: 22px; text-align: center; font-size: 15px; font-weight: 800; letter-spacing: 1.5px; }
+  .gj-files { width: 100%; margin-top: 6px; } .gj-files th, .gj-files td { font-size: 10.5px; padding: 3px 5px; } .gj-files td.hx { font-family: monospace; font-size: 8.5px; word-break: break-all; }
+  .gj-sealline { margin-top: 14px; text-align: center; font-family: monospace; font-size: 9px; color: #475569; word-break: break-all; }
+  .fl { margin: 6px 0 2px; } .fl .fr { display: flex; gap: 8px; align-items: center; padding: 6px 8px; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 6px; font-size: 13px; }
+  .fl .fr .nm { flex: 1; min-width: 0; word-break: break-all; font-weight: 700; } .fl .fr .sub { display: block; font-weight: 400; font-size: 11px; color: #64748b; font-family: monospace; }
+  .fl .fr.gone .nm { text-decoration: line-through; color: #94a3b8; } .fl .fr button { flex: none; min-width: 0; padding: 4px 10px; font-size: 12px; }
   .gj-tg { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   @media (max-width: 520px) { .urow { grid-template-columns: 1fr; } .acts { justify-content: flex-start; } .grid2 { grid-template-columns: 1fr; } }
 </style>
@@ -315,6 +320,10 @@
           <div id="dRefWrap"><label for="dRef">참조</label><input type="text" id="dRef" maxlength="60" autocomplete="off"></div>
           <label for="dSummary" id="dSummaryL">본문 요지</label><textarea id="dSummary" rows="4" maxlength="2000"></textarea>
           <label for="dAttach" id="dAttachL">첨부</label><input type="text" id="dAttach" maxlength="200" autocomplete="off" placeholder="예: 견적서 1부, 실행예산서 엑셀">
+          <div id="dFilesWrap"><label for="dFileIn" id="dFilesL">첨부파일</label>
+            <div class="fl" id="dFileList"></div>
+            <input type="file" id="dFileIn" multiple accept=".hwp,.hwpx,.xlsx,.xls,.docx,.doc,.pptx,.ppt,.pdf,.jpg,.jpeg,.png,.zip,.dwg,.dxf,.txt,.csv">
+            <div class="desc" id="dFilesHint" style="margin-top:4px">HWP·XLSX·PDF 등, 파일당 8MB · 문서당 10개까지. 저장할 때 올라가며 파일마다 SHA-256 확인값이 기록됩니다.</div></div>
           <label for="dNote">비고</label><input type="text" id="dNote" maxlength="200" autocomplete="off">
           <div class="row-btns"><button type="button" id="dDraft">임시저장</button><button type="button" class="pri" id="dSubmit" style="margin-top:0">저장하고 제출</button></div>
           <button type="button" id="dCancel" style="width:100%;margin-top:8px">취소</button>
