@@ -76,7 +76,7 @@ function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.9' }; }
+function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.10' }; }
 
 function route_(req) {
   const t0 = Date.now();
@@ -1557,7 +1557,7 @@ function gapjiHtml_(o) {
   }
   h.push(row(o.kind === '공문' ? '붙 임' : '붙임/첨부', '', attachHtml, 'height:40px'));
   h.push('</table>');
-  h.push('<div style="margin-top:26px;text-align:center;font-size:14px;font-weight:bold;letter-spacing:1px">' + gjEsc_((o.kind === '품의' ? '' : '(주)동우건설 ') + '호남고속선 재해예방공사 현장 현장소장 ' + mgrName) + '</div>');
+  h.push('<div style="margin-top:26px;text-align:center;font-size:14px;font-weight:bold;letter-spacing:1px">' + gjEsc_(((o.kind === '품의' && o.cat === '본사품의') ? '' : '(주)동우건설 ') + '호남고속선 재해예방공사 현장 현장소장 ' + mgrName) + '</div>');
   if (o.seal) h.push('<div style="margin-top:12px;text-align:center;font-size:8px;color:#475569;font-family:monospace">문서 SHA-256 봉인(확정 시): ' + gjEsc_(o.seal) + '</div>');
   h.push('</div></body></html>');
   return h.join('');

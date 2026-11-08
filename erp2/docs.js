@@ -121,7 +121,7 @@
     }, { padding: '8px 10px' });
 
     // 품의는 회사 안(본사)으로 올리는 문서라 회사명을 빼고, 공문은 밖으로 나가므로 회사명을 쓴다
-    var f = el('div', 'gj-foot', (m.kind === '품의' ? '' : '(주)동우건설 ') + '호남고속선 재해예방공사 현장 현장소장 ' + (m.mgr || MGR_NAME)); S.appendChild(f);
+    var f = el('div', 'gj-foot', ((m.kind === '품의' && m.cat === '본사품의') ? '' : '(주)동우건설 ') + '호남고속선 재해예방공사 현장 현장소장 ' + (m.mgr || MGR_NAME)); S.appendChild(f);
     if (m.seal) S.appendChild(el('div', 'gj-sealline', '문서 SHA-256 봉인(확정 시): ' + m.seal));
     return S;
   }
