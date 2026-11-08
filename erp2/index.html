@@ -26,10 +26,21 @@
   .msg { min-height: 20px; margin-top: 10px; font-size: 13px; color: #b91c1c; white-space: pre-wrap; }
   .msg.info { color: #1d4ed8; }
   .hide { display: none !important; }
-  .bar { background: #0f2942; color: #fff; padding: 10px 14px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  .bar .t { font-weight: 800; font-size: 14px; flex: 1; min-width: 160px; }
-  .chip { background: rgba(255,255,255,.15); border-radius: 14px; padding: 4px 10px; font-size: 12.5px; font-weight: 700; }
-  .bar button { background: rgba(255,255,255,.18); color: #fff; font-size: 12.5px; padding: 6px 10px; }
+  .bar { position: sticky; top: 0; z-index: 30; background: #0f2942; color: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.25); }
+  .bar .in { max-width: 760px; margin: 0 auto; padding: 8px 14px; display: flex; gap: 10px; align-items: center; position: relative; }
+  .bar .brand { flex: 1; min-width: 0; line-height: 1.25; }
+  .bar .brand small { display: block; font-size: 11px; font-weight: 600; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar .brand b { display: block; font-size: 16px; font-weight: 800; letter-spacing: .2px; white-space: nowrap; }
+  .bar .mbtn { display: flex; align-items: center; gap: 7px; flex: none; max-width: 56%; background: rgba(255,255,255,.12); color: #fff; font-size: 13px; padding: 4px 10px 4px 5px; border-radius: 20px; }
+  .bar .mbtn:hover, .bar .mbtn[aria-expanded=true] { background: rgba(255,255,255,.22); }
+  .bar .av { flex: none; width: 28px; height: 28px; border-radius: 50%; background: #38bdf8; color: #0f2942; font-weight: 800; font-size: 14px; display: flex; align-items: center; justify-content: center; }
+  .bar #who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+  .bar #who .wr { font-size: 11px; font-weight: 600; color: #94a3b8; margin-left: 5px; }
+  .bar .car { flex: none; font-size: 10px; opacity: .7; }
+  .bar .menu { position: absolute; right: 14px; top: calc(100% - 2px); min-width: 180px; background: #fff; color: #0f172a; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.28); padding: 6px; display: flex; flex-direction: column; }
+  .bar .menu button { text-align: left; background: transparent; color: #0f172a; font-size: 15px; font-weight: 600; padding: 12px 12px; border-radius: 8px; }
+  .bar .menu button:hover, .bar .menu button:focus-visible { background: #f1f5f9; }
+  .bar .menu button.out { color: #b91c1c; border-top: 1px solid #e2e8f0; border-radius: 0 0 8px 8px; margin-top: 4px; }
   .panel { background: #fff; border-radius: 12px; padding: 14px; margin: 12px 0; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
   .panel h3 { margin: 0 0 8px; font-size: 15px; }
   .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
@@ -165,11 +176,15 @@
 <!-- 로그인 후 화면 -->
 <div id="vApp" class="hide">
   <div class="bar">
-    <div class="t">호남고속선 재해예방공사 · HN28 현장 ERP</div>
-    <span class="chip" id="who"></span>
-    <button id="btnAdmin" class="hide">직원 관리</button>
-    <button id="btnChange">PIN 변경</button>
-    <button id="btnLogout">로그아웃</button>
+    <div class="in">
+      <div class="brand"><small>호남고속선 재해예방공사</small><b>HN28 현장 ERP</b></div>
+      <button type="button" class="mbtn" id="btnMenu" aria-haspopup="menu" aria-expanded="false" aria-controls="menu"><span class="av" id="whoAv" aria-hidden="true"></span><span id="who"></span><span class="car" aria-hidden="true">▼</span></button>
+      <div class="menu hide" id="menu" role="menu">
+        <button type="button" role="menuitem" id="btnAdmin" class="hide">직원 관리</button>
+        <button type="button" role="menuitem" id="btnChange">PIN 변경</button>
+        <button type="button" role="menuitem" id="btnLogout" class="out">로그아웃</button>
+      </div>
+    </div>
   </div>
   <div class="wrap">
     <div id="vHome">
@@ -424,12 +439,15 @@
   }
   function enterApp() {
     showOnly('vApp');
-    $('who').textContent = me.name + ' · ' + me.role;
+    $('who').textContent = ''; $('who').appendChild(document.createTextNode(me.name + ' '));
+    var wr = document.createElement('span'); wr.className = 'wr'; wr.textContent = me.role; $('who').appendChild(wr);
+    $('whoAv').textContent = String(me.name || '?').charAt(0);
+    setMenu(false);
     $('btnAdmin').classList.toggle('hide', me.role !== '현장소장');
     window.ERP2.showView('vHome');
     window.ERP2.onEnter.forEach(function (f) { try { f(); } catch (e) {} });
   }
-  function toLogin(msg, info) { window.ERP2.onLeave.forEach(function (f) { try { f(); } catch (e) {} }); token = ''; me = null; store(TOKEN_KEY, ''); showLogin(msg, info); }
+  function toLogin(msg, info) { setMenu(false); window.ERP2.onLeave.forEach(function (f) { try { f(); } catch (e) {} }); token = ''; me = null; store(TOKEN_KEY, ''); showLogin(msg, info); }
   function authLost(res) { if (res && res.error === 'AUTH') { toLogin('다시 로그인해 주세요. (' + (res.message || '로그인이 만료되었습니다.') + ')'); return true; } return false; }
 
   // ── 시작 ──
@@ -492,6 +510,13 @@
   };
   $('btnPinCancel').onclick = function () { enterApp(); };
   $('btnChange').onclick = function () { openPin('normal'); };
+
+  // ── 상단 메뉴(사용자 이름을 누르면 열림) ──
+  function setMenu(open) { $('menu').classList.toggle('hide', !open); $('btnMenu').setAttribute('aria-expanded', open ? 'true' : 'false'); }
+  $('btnMenu').onclick = function (e) { e.stopPropagation(); var open = $('menu').classList.contains('hide'); setMenu(open); if (open) { var f = $('menu').querySelector('button:not(.hide)'); if (f && e.detail === 0) f.focus(); } };
+  $('menu').addEventListener('click', function () { setMenu(false); });
+  document.addEventListener('click', function (e) { if (!$('menu').classList.contains('hide') && !$('menu').contains(e.target)) setMenu(false); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !$('menu').classList.contains('hide')) { setMenu(false); $('btnMenu').focus(); } });
 
   $('btnLogout').onclick = function () { var t = token; toLogin('로그아웃했습니다.', true); api('logout', { token: t }, 8000); };
 
