@@ -11,7 +11,7 @@
   var startedAt = 0;           // 마지막으로 서버를 부른 시각(같은 순간의 중복 호출을 막는다)
   var DOW = ['일', '월', '화', '수', '목', '금', '토'];
   var TONE_RANK = { act: 0, late: 1, warn: 2, fix: 3, mine: 4 };
-  var GO = { exp: 'tileExp', ops: 'tileOps', doc: 'tileDoc', close: 'tileClose' };
+  var GO = { exp: 'tileExp', ops: 'tileOps', doc: 'tileDoc', close: 'tileClose', task: 'tileTask' };
   var STATE_CLS = { '완료': 'done', '진행': 'go', '지연': 'late', '예정': 'soon' };
 
   function num(v) { v = Number(v); return isFinite(v) ? v : 0; }

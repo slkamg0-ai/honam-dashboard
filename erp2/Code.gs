@@ -76,7 +76,7 @@ function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.12' }; }
+function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.13' }; }
 
 function route_(req) {
   const t0 = Date.now();
@@ -123,6 +123,11 @@ function route_(req) {
       case 'mailPreview': out = mailPreview_(req); break;
       case 'sendHqMail': out = sendHqMail_(req); break;
       case 'dashboard': out = dashboard_(req); break;
+      case 'listTasks': out = listTasks_(req); break;
+      case 'saveTask': out = saveTask_(req); break;
+      case 'doneTask': out = doneTask_(req); break;
+      case 'reopenTask': out = reopenTask_(req); break;
+      case 'cancelTask': out = cancelTask_(req); break;
       default: out = fail_('UNKNOWN_ACTION', '알 수 없는 요청입니다.');
     }
   } catch (err) {
@@ -2228,6 +2233,14 @@ function dashboard_(req) {
     if (workDay(ds) && !hasOps[ds]) missing++;
   }
   add('opsMissing', '이번 달 일보 없는 날', missing, '일', 'warn', 'ops');
+  // 현장소장·공무가 내린 업무 지시 — 담당자 본인 화면에 한 건씩, 내가 지시한 것은 한 줄로
+  const taskOpen = taskRows_(ensureTaskSheet_(ss)).filter(function (o) { return o.status === TST.OPEN; });
+  const myTasks = taskOpen.filter(function (o) { return o.toId === me.id; }).sort(taskOrder_);
+  myTasks.slice(0, 5).forEach(function (o) { todo.push(taskTodo_(o, today)); });
+  add('taskMore', '지시받은 업무 외 ' + (myTasks.length - 5) + '건', myTasks.length - 5, '건', 'warn', 'task');
+  const outTasks = taskOpen.filter(function (o) { return o.byId === me.id && o.toId !== me.id; });
+  const outLate = count(outTasks, function (o) { return o.due && o.due < today; });
+  add('taskOut', '내가 지시한 업무 진행 중' + (outLate ? ' (기한 지남 ' + outLate + '건)' : ''), outTasks.length, '건', outLate ? 'late' : 'mine', 'task');
   add('docDraft', '작성 중인 내 문서', count(docs, function (o) { return mine(o) && o.status === DST.DRAFT; }), '건', 'mine', 'doc');
   add('expDraft', '작성 중인 내 경비', count(exps, function (o) { return mine(o) && o.status === ST.DRAFT; }), '건', 'mine', 'exp');
   add('opsDraft', '작성 중인 내 작업일보', count(ops, function (o) { return mine(o) && o.status === OST.DRAFT; }), '건', 'mine', 'ops');
@@ -2287,4 +2300,166 @@ function dashboard_(req) {
   }
   const period = { start: first, end: lastEnd, pct: dashPlanned_(today, first, lastEnd) };
   return { ok: true, today: today, role: me.role, todo: todo, month: month, prev: prev, sites: sites, siteSummary: sum, budget: budget, period: period };
+}
+
+
+// ═════════════════════════════ 업무 지시 ═════════════════════════════
+// 현장소장·공무가 팀원에게 할 일(제목·기한·긴급)을 내리면 담당자 대시보드의 「오늘 처리할 일」에 뜬다. 담당자가 완료하면 사라진다.
+const SHEET_TASK = '업무지시';
+const TST = { OPEN: '진행', DONE: '완료', CANCEL: '취소' };
+const TASK_FIELDS = [['id', 'ID'], ['title', '제목'], ['memo', '내용'], ['toId', '담당자ID'], ['to', '담당자'], ['due', '기한'], ['urgent', '긴급'], ['status', '상태'],
+  ['byId', '지시자ID'], ['by', '지시자'], ['created', '지시일시'], ['doneBy', '완료자'], ['doneAt', '완료일시'], ['doneMemo', '완료메모'], ['reason', '취소사유'], ['updated', '수정일시']];
+const TASK_HEADERS = TASK_FIELDS.map(function (f) { return f[1]; });
+
+function ensureTaskSheet_(ss) {
+  let sh = ss.getSheetByName(SHEET_TASK);
+  if (!sh) {
+    sh = ss.insertSheet(SHEET_TASK);
+    sh.getRange(1, 1, sh.getMaxRows(), TASK_HEADERS.length).setNumberFormat('@');
+    sh.getRange(1, 1, 1, TASK_HEADERS.length).setValues([TASK_HEADERS]);
+  }
+  return sh;
+}
+
+function taskRows_(sh) {
+  const last = sh.getLastRow();
+  if (last < 2) return [];
+  return sh.getRange(2, 1, last - 1, TASK_HEADERS.length).getValues().map(function (r, i) {
+    const o = { _row: i + 2 };
+    TASK_FIELDS.forEach(function (f, k) { o[f[0]] = r[k] === null || r[k] === undefined ? '' : String(r[k]); });
+    return o;
+  });
+}
+
+function taskWrite_(sh, o, rowNo) {
+  o.updated = nowStr_();
+  const arr = TASK_FIELDS.map(function (f) { return o[f[0]] === undefined || o[f[0]] === null ? '' : String(o[f[0]]); });
+  const row = rowNo || (sh.getLastRow() + 1);
+  sh.getRange(row, 1, 1, TASK_HEADERS.length).setNumberFormat('@');
+  sh.getRange(row, 1, 1, TASK_HEADERS.length).setValues([arr]);
+  o._row = row;
+}
+
+function taskFind_(rows, id) {
+  for (let i = 0; i < rows.length; i++) if (rows[i].id === id && rows[i].status !== TST.CANCEL) return rows[i];
+  return null;
+}
+
+/** 급한 것 먼저: 기한이 이른 순(기한 없음은 맨 뒤) → 긴급 → 지시 순서 */
+function taskOrder_(a, b) {
+  const da = a.due || '9999-12-31', db = b.due || '9999-12-31';
+  if (da !== db) return da < db ? -1 : 1;
+  if ((a.urgent === 'Y') !== (b.urgent === 'Y')) return a.urgent === 'Y' ? -1 : 1;
+  return a.created < b.created ? -1 : a.created > b.created ? 1 : (a.id < b.id ? -1 : 1);
+}
+
+function taskPublic_(o, today) {
+  const open = o.status === TST.OPEN;
+  return { id: o.id, title: o.title, memo: o.memo, toId: o.toId, to: o.to, due: o.due, urgent: o.urgent === 'Y', status: o.status, byId: o.byId, by: o.by, created: o.created,
+    doneBy: o.doneBy, doneAt: o.doneAt, doneMemo: o.doneMemo, daysLeft: open && o.due ? dashDays_(today, o.due) : null };
+}
+
+function taskTodo_(o, today) {
+  const days = o.due ? dashDays_(today, o.due) : null, urgent = o.urgent === 'Y';
+  let tag, tone;
+  if (days === null) { tag = urgent ? '긴급' : '기한 없음'; tone = urgent ? 'act' : 'warn'; }
+  else if (days < 0) { tag = (-days) + '일 지남'; tone = 'late'; }
+  else if (days === 0) { tag = '오늘까지'; tone = 'act'; }
+  else if (days === 1) { tag = '내일까지'; tone = 'act'; }
+  else { tag = 'D-' + days; tone = urgent ? 'act' : 'warn'; }
+  return { key: 'task:' + o.id, label: (urgent ? '[긴급] ' : '') + '지시: ' + o.title + ' (' + o.by + ')', n: 1, unit: '', tone: tone, go: 'task', tag: tag };
+}
+
+function taskCanManage_(o, me) { return me.role === MANAGER_ROLE || o.byId === me.id; }
+
+function listTasks_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s, isMgr = me.role === MANAGER_ROLE, isGm = isMgr || me.role === '공무';
+  const today = nowStr_().slice(0, 10);
+  const rows = taskRows_(ensureTaskSheet_(getDb_())).filter(function (o) { return o.status !== TST.CANCEL && (isMgr || o.toId === me.id || o.byId === me.id); });
+  const open = rows.filter(function (o) { return o.status === TST.OPEN; }).sort(taskOrder_);
+  const done = rows.filter(function (o) { return o.status === TST.DONE; }).sort(function (a, b) { return a.doneAt < b.doneAt ? 1 : a.doneAt > b.doneAt ? -1 : 0; }).slice(0, 100);
+  let staff = [];
+  if (isGm) staff = readUsers_(ensureUsersSheet_(getDb_())).filter(function (r) { return r[COL.active] === 'Y'; }).map(function (r) { return { id: String(r[COL.id]), name: String(r[COL.name]), role: String(r[COL.role]) }; });
+  return { ok: true, today: today, items: open.concat(done).map(function (o) { return taskPublic_(o, today); }), staff: staff, canAssign: isGm };
+}
+
+function saveTask_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s;
+  if (me.role !== MANAGER_ROLE && me.role !== '공무') return fail_('FORBIDDEN', '업무 지시는 현장소장과 공무만 할 수 있습니다.');
+  const today = nowStr_().slice(0, 10);
+  const title = cleanText_(req.title, 60), memo = cleanMulti_(req.memo, 500), due = String(req.due || '').trim(), toId = String(req.toId || '').trim();
+  if (title.length < 2) return fail_('INVALID', '업무 제목을 2자 이상 입력해 주세요.');
+  if (due && !validDate_(due)) return fail_('INVALID', '기한 날짜가 올바르지 않습니다.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const ss = getDb_();
+    const u = findUser_(ensureUsersSheet_(ss), toId);
+    if (!u || u.row[COL.active] !== 'Y') return fail_('INVALID', '담당자를 선택해 주세요. (사용 중인 직원만 지정할 수 있습니다.)');
+    const sh = ensureTaskSheet_(ss), rows = taskRows_(sh);
+    let o = null;
+    if (req.id) {
+      o = taskFind_(rows, String(req.id));
+      if (!o) return fail_('NOT_FOUND', '없는 업무 지시입니다.');
+      if (!taskCanManage_(o, me)) return fail_('FORBIDDEN', '지시한 사람 또는 현장소장만 고칠 수 있습니다.');
+      if (o.status !== TST.OPEN) return fail_('STATE', '진행 중인 업무만 고칠 수 있습니다. 완료된 업무는 다시 진행으로 돌린 뒤 고쳐 주세요.');
+    }
+    if (due && due < today && (!o || o.due !== due)) return fail_('INVALID', '기한은 오늘 이후 날짜로 정해 주세요.');
+    if (!o) o = { id: 'TSK-' + today.slice(0, 4) + '-' + pad_(nextSeq_('TSK:' + today.slice(0, 4)), 3), status: TST.OPEN, byId: me.id, by: me.name, created: nowStr_(), doneBy: '', doneAt: '', doneMemo: '', reason: '' };
+    o.title = title; o.memo = memo; o.toId = String(u.row[COL.id]); o.to = String(u.row[COL.name]); o.due = due; o.urgent = req.urgent ? 'Y' : '';
+    const isNew = !o._row;
+    taskWrite_(sh, o, o._row);
+    audit_(me.id, isNew ? '업무지시' : '업무수정', o.id + ' / ' + o.to + (o.due ? ' / ~' + o.due : ''));
+    return { ok: true, item: taskPublic_(o, today) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function taskChange_(req, action, apply) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s, today = nowStr_().slice(0, 10);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const sh = ensureTaskSheet_(getDb_()), o = taskFind_(taskRows_(sh), String(req.id || ''));
+    if (!o) return fail_('NOT_FOUND', '없는 업무 지시입니다.');
+    const bad = apply(o, me); if (bad) return bad;
+    taskWrite_(sh, o, o._row);
+    audit_(me.id, action, o.id + ' / ' + o.to);
+    return { ok: true, item: taskPublic_(o, today) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function doneTask_(req) {
+  return taskChange_(req, '업무완료', function (o, me) {
+    if (o.toId !== me.id && !taskCanManage_(o, me)) return fail_('FORBIDDEN', '담당자, 지시한 사람 또는 현장소장만 완료 처리할 수 있습니다.');
+    if (o.status !== TST.OPEN) return fail_('STATE', '이미 완료된 업무입니다.');
+    o.status = TST.DONE; o.doneBy = me.name; o.doneAt = nowStr_(); o.doneMemo = cleanText_(req.memo, 200);
+    return null;
+  });
+}
+
+function reopenTask_(req) {
+  return taskChange_(req, '업무재개', function (o, me) {
+    if (!taskCanManage_(o, me)) return fail_('FORBIDDEN', '지시한 사람 또는 현장소장만 다시 진행으로 돌릴 수 있습니다.');
+    if (o.status !== TST.DONE) return fail_('STATE', '완료된 업무만 다시 진행으로 돌릴 수 있습니다.');
+    o.status = TST.OPEN; o.doneBy = ''; o.doneAt = ''; o.doneMemo = '';
+    return null;
+  });
+}
+
+function cancelTask_(req) {
+  return taskChange_(req, '업무취소', function (o, me) {
+    if (!taskCanManage_(o, me)) return fail_('FORBIDDEN', '지시한 사람 또는 현장소장만 취소할 수 있습니다.');
+    if (o.status !== TST.OPEN) return fail_('STATE', '진행 중인 업무만 취소할 수 있습니다.');
+    const reason = cleanText_(req.reason, 100);
+    if (reason.length < 2) return fail_('INVALID', '취소 사유를 2자 이상 적어 주세요.');
+    o.status = TST.CANCEL; o.reason = reason;
+    return null;
+  });
 }
