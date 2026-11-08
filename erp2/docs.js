@@ -388,6 +388,7 @@
     if (i.reviewer && (i.status === '승인대기' || i.status === '확정')) kv(p, '검토', i.reviewer + ' · ' + i.reviewedAt);
     if (i.approver && i.status === '확정') kv(p, '승인', i.approver + ' · ' + i.approvedAt);
     if (i.hq && i.hq.state) kv(p, '본사', '본사 ' + i.hq.state + ' · ' + i.hq.by + ' · ' + String(i.hq.at).slice(0, 16) + (i.hq.state === '확인' && i.hq.submitAt ? ' (제출 ' + String(i.hq.submitAt).slice(0, 16) + ')' : '') + (i.hq.note ? ' · ' + i.hq.note : ''));
+    if (i.mail) kv(p, '본사 메일', String(i.mail.at).slice(0, 16) + ' · ' + i.mail.by + ' → ' + String(i.mail.to).replace(/,/g, ', ') + ' (첨부 ' + i.mail.n + '건)');
     if (i.note) kv(p, '비고', i.note);
     var fbox = null;
     if (i.files && i.files.length) { p.appendChild(el('div', 'desc', '첨부파일 ' + i.files.length + '개 (파일마다 SHA-256 기록)')).style.marginTop = '10px'; fbox = el('div', 'fl'); p.appendChild(fbox); }
@@ -421,6 +422,54 @@
       btn('취소', '', function () { showDetail(i); });
       btn(label, cls, function () { var v = t.value.trim(); if (required && v.length < 2) { setMsg('dDMsg', '내용을 2자 이상 적어 주세요.'); return; } fn(v); });
     }
+    /** 본사로 메일 보내기: 먼저 서버가 만든 제목·본문·첨부 목록을 보여 주고, 확인한 뒤에만 보낸다 */
+    function mailBox() {
+      if (busy) return; busy = true; setMsg('dDMsg', '메일 내용을 불러오는 중…', true);
+      E.api('mailPreview', { id: i.id }, 30000).then(function (pv) {
+        busy = false;
+        if (fail('dDMsg', pv)) return;
+        if (!pv.ok) return;
+        setMsg('dDMsg', '');
+        btns.textContent = '';
+        var w = el('div', 'mailbox'); w.style.width = '100%'; btns.appendChild(w);
+        w.appendChild(el('b', '', '본사로 메일 보내기 — 보내기 전에 확인하세요'));
+        w.appendChild(el('label', '', '받는 사람'));
+        var to = el('input'); to.type = 'text'; to.id = 'dMailTo'; to.value = pv.to; to.maxLength = 200; to.disabled = !pv.canEditTo; w.appendChild(to);
+        w.appendChild(el('div', 'hint', pv.canEditTo ? '기본은 본사입니다. 바꾸려면 메일 주소를 쉼표로 구분해 ' + pv.maxTo + '명까지 적을 수 있습니다.' : '받는 사람은 현장소장만 바꿀 수 있습니다.'));
+        w.appendChild(el('label', '', '제목')); var sj = el('div', 'mailsub', pv.subject); sj.id = 'dMailSubject'; w.appendChild(sj);
+        w.appendChild(el('label', '', '본문')); var bd = el('pre', 'mailbody', pv.body + pv.tail); bd.id = 'dMailBody'; w.appendChild(bd);
+        w.appendChild(el('label', '', '추가 메모 (본문 끝에 덧붙입니다, 선택)')); var mm = el('textarea'); mm.id = 'dMailMemo'; mm.rows = 2; mm.maxLength = 300; mm.placeholder = '예: 금일 중 검토 부탁드립니다.'; w.appendChild(mm);
+        w.appendChild(el('label', '', '첨부 ' + (pv.files.length + 1) + '건 (합계 약 ' + fmtSize(pv.totalBytes) + ' + 갑지 PDF, 한도 ' + fmtSize(pv.maxBytes) + ')'));
+        var fl = el('div', 'fl'); fl.id = 'dMailFiles'; w.appendChild(fl);
+        var r0 = el('div', 'fr'); var n0 = el('span', 'nm', pv.gapjiName); n0.appendChild(el('span', 'sub', '갑지 PDF (보낼 때 새로 만듭니다)')); r0.appendChild(n0); fl.appendChild(r0);
+        pv.files.forEach(function (f) { var r = el('div', 'fr'); var n = el('span', 'nm', f.name); n.appendChild(el('span', 'sub', fmtSize(f.size) + ' · SHA-256 ' + f.sha)); r.appendChild(n); fl.appendChild(r); });
+        var ready = true;
+        if (pv.quota === null) { ready = false; w.appendChild(el('div', 'rej', '메일 보내기 권한이 아직 승인되지 않았습니다. 현장소장이 서버(Apps Script)에서 한 번 승인하면 보낼 수 있습니다.')); }
+        else { w.appendChild(el('div', 'hint', '오늘 남은 발송 한도: ' + pv.quota + '건')); }
+        var chk = null;
+        if (pv.already) {
+          w.appendChild(el('div', 'rej', '이미 ' + String(pv.already.at).slice(0, 16) + ' 에 ' + pv.already.by + ' 님이 ' + String(pv.already.to).replace(/,/g, ', ') + ' (으)로 보냈습니다.'));
+          var lb = el('label', 'chk'); chk = el('input'); chk.type = 'checkbox'; chk.id = 'dMailResend'; lb.appendChild(chk); lb.appendChild(document.createTextNode(' 알고 있습니다. 다시 보냅니다.')); w.appendChild(lb);
+        }
+        var row = el('div', 'row-btns'); w.appendChild(row);
+        var cancel = el('button', '', '취소'); cancel.type = 'button'; cancel.onclick = function () { showDetail(i); }; row.appendChild(cancel);
+        var send = el('button', 'pri', '메일 보내기'); send.type = 'button'; send.id = 'dMailSend'; send.style.marginTop = '0'; send.disabled = !ready; row.appendChild(send);
+        send.onclick = function () {
+          if (busy) return;
+          if (pv.already && !chk.checked) { setMsg('dDMsg', '이미 보낸 문서입니다. 다시 보내려면 「알고 있습니다」에 표시해 주세요.'); return; }
+          var tt = to.value.trim() === String(pv.to) ? '' : to.value.trim();
+          if (!window.confirm('「' + i.docNo + '」을(를) ' + (tt || pv.to) + ' (으)로 메일을 보냅니다.\n첨부 ' + (pv.files.length + 1) + '건. 보낸 메일은 되돌릴 수 없습니다. 보낼까요?')) return;
+          busy = true; send.disabled = true; cancel.disabled = true; setMsg('dDMsg', '메일을 보내는 중… (첨부가 크면 1분 가까이 걸릴 수 있습니다)', true);
+          var data = { id: i.id, memo: mm.value.trim() }; if (tt) data.to = tt; if (pv.already) data.confirmResend = true;
+          E.api('sendHqMail', data, 120000).then(function (r) {
+            busy = false; send.disabled = !ready; cancel.disabled = false;
+            if (fail('dDMsg', r)) return;
+            if (!r.ok) return;
+            showDetail(r.item, '본사로 메일을 보냈습니다. (' + r.sent.to.join(', ') + ' · 첨부 ' + r.sent.n + '건)' + ((r.item.hq && r.item.hq.state === '제출') ? ' 본사 제출로 표시했습니다.' : '') + ((r.warn && r.warn.length) ? '\n※ ' + r.warn.join(' ') : ''));
+          });
+        };
+      });
+    }
     function linkBox() {
       btns.textContent = ''; var t = el('input'); t.type = 'text'; t.id = 'dDLink'; t.maxLength = 300; t.placeholder = 'https://docs.google.com/document/d/…'; t.value = i.link || '';
       var w = el('div'); w.style.width = '100%'; w.appendChild(t); btns.appendChild(w);
@@ -452,6 +501,7 @@
       if (hqs === '제출' && isMgr()) btn('본사 확인 표시', 'ok', function () { noteBox('확인 표시', '확인 방법·담당자 (예: 전화 확인 — 비워 둬도 됩니다)', false, 'ok', function (v) { act('hqDoc', { id: i.id, step: '확인', note: v }, '본사 확인을 표시했습니다.'); }); });
       if (hqs && isMgr()) btn('본사 표시 취소', 'warn', function () { noteBox('취소 확정', '취소 사유 (필수, 기록으로 남습니다)', true, 'warn', function (v) { act('hqDoc', { id: i.id, step: '취소', note: v }, '본사 표시를 취소했습니다.'); }); });
     }
+    if (i.kind !== '접수' && i.status === '확정' && isGm()) btn(i.mail ? '본사로 메일 다시 보내기' : '본사로 메일 보내기', i.mail ? '' : 'pri', mailBox).style.marginTop = '0';
     if (i.kind !== '접수' && i.status === '확정' && (mine || isGm())) btn(i.gapji ? '갑지 PDF 다시 만들기' : '갑지 PDF 만들기', '', function () { act('gapjiDoc', { id: i.id }, '갑지 PDF를 만들었습니다.'); });
     if (i.kind !== '접수' && i.status === '확정' && i.seal) btn('무결성 확인', '', function () { verify(i); });
     if (i.status !== '결번' && (mine || isGm())) btn('링크 바꾸기', '', linkBox);

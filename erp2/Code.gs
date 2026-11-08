@@ -76,7 +76,7 @@ function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.10' }; }
+function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.11' }; }
 
 function route_(req) {
   const t0 = Date.now();
@@ -120,6 +120,8 @@ function route_(req) {
     case 'deleteDocFile': out = deleteDocFile_(req); break;
     case 'getDocFile': out = getDocFile_(req); break;
     case 'verifyDoc': out = verifyDoc_(req); break;
+    case 'mailPreview': out = mailPreview_(req); break;
+    case 'sendHqMail': out = sendHqMail_(req); break;
       default: out = fail_('UNKNOWN_ACTION', '알 수 없는 요청입니다.');
     }
   } catch (err) {
@@ -1315,7 +1317,7 @@ const DOC_FIELDS = [['id', 'ID'], ['docNo', '문서번호'], ['kind', '구분'],
   ['due', '회신기한'], ['replied', '회신여부'], ['link', '문서링크'], ['docId', '문서ID'], ['folderId', '폴더ID'], ['pdf', '확정PDF'], ['ref', '참조'],
   ['summary', '본문요지'], ['attach', '붙임'], ['note', '비고'], ['authorId', '작성자ID'], ['author', '작성자'], ['reviewer', '검토자'], ['reviewedAt', '검토일시'],
   ['approver', '승인자'], ['approvedAt', '승인일시'], ['reason', '반려사유'], ['hq', '본사상태'], ['hqBy', '본사처리자'], ['hqAt', '본사처리일시'],
-  ['hqSubmitAt', '본사제출일시'], ['hqNote', '본사메모'], ['created', '작성일시'], ['updated', '수정일시'], ['cat', '문서구분'], ['amount', '집행금액'], ['gapji', '갑지PDF'], ['files', '첨부파일'], ['seal', '문서해시']];
+  ['hqSubmitAt', '본사제출일시'], ['hqNote', '본사메모'], ['created', '작성일시'], ['updated', '수정일시'], ['cat', '문서구분'], ['amount', '집행금액'], ['gapji', '갑지PDF'], ['files', '첨부파일'], ['seal', '문서해시'], ['mail', '본사메일']];
 // 문서구분(갑지의 분류): 품의와 공문에만 있다. 이름만 저장한다.
 const DOC_CATS = { '품의': ['현장품의', '본사품의', '변경품의'], '공문': ['본사문서', '대관공문', '안전점검', '기타'] };
 const DOC_HEADERS = DOC_FIELDS.map(function (f) { return f[1]; });
@@ -1376,7 +1378,7 @@ function docPublic_(o) {
     link: o.link, folderUrl: folderUrl_(o.folderId), pdf: o.pdf, ref: o.ref, summary: o.summary, attach: o.attach, note: o.note,
     authorId: o.authorId, author: o.author, reviewer: o.reviewer, reviewedAt: o.reviewedAt, approver: o.approver, approvedAt: o.approvedAt, reason: o.reason,
     hq: { state: o.hq, by: o.hqBy, at: o.hqAt, submitAt: o.hqSubmitAt, note: o.hqNote }, created: o.created, updated: o.updated, cat: o.cat, amount: o.amount, gapji: o.gapji,
-    files: docFilesOf_(o).map(docFilePublic_), seal: o.seal || ''
+    files: docFilesOf_(o).map(docFilePublic_), seal: o.seal || '', mail: docMailInfo_(o)
   };
 }
 
@@ -1557,7 +1559,7 @@ function gapjiHtml_(o) {
   }
   h.push(row(o.kind === '공문' ? '붙 임' : '붙임/첨부', '', attachHtml, 'height:40px'));
   h.push('</table>');
-  h.push('<div style="margin-top:26px;text-align:center;font-size:14px;font-weight:bold;letter-spacing:1px">' + gjEsc_(((o.kind === '품의' && o.cat === '본사품의') ? '' : '(주)동우건설 ') + '호남고속선 재해예방공사 현장 현장소장 ' + mgrName) + '</div>');
+  h.push('<div style="margin-top:26px;text-align:center;font-size:14px;font-weight:bold;letter-spacing:1px">' + gjEsc_(docSignoff_(o, mgrName)) + '</div>');
   if (o.seal) h.push('<div style="margin-top:12px;text-align:center;font-size:8px;color:#475569;font-family:monospace">문서 SHA-256 봉인(확정 시): ' + gjEsc_(o.seal) + '</div>');
   h.push('</div></body></html>');
   return h.join('');
@@ -1985,6 +1987,158 @@ function linkDoc_(req) {
     lock.releaseLock();
   }
 }
+
+// ───────────── 본사 메일 발송 (v2.11) ─────────────
+// 확정된 품의·공문을 갑지 PDF + 첨부파일과 함께 본사로 메일로 보낸다. 서버 권한: 메일 보내기(MailApp, script.send_mail)만 추가.
+const HQ_MAIL_TO = 'es@sh2003.co.kr';
+const HQ_MAIL_NAME = '호남고속선 재해예방공사 현장';
+const HQ_MAIL_MAX_BYTES = 18 * 1024 * 1024; // 메일 한 통 첨부 합계 한도(받는 쪽 한도 25MB에 여유를 둠)
+const HQ_MAIL_MAX_TO = 3;
+const SHEET_MAIL = '메일발송';
+
+/** 서명 줄: 본사품의만 회사명을 뺀다. */
+function docSignoff_(o, mgrName) {
+  return ((o.kind === '품의' && o.cat === '본사품의') ? '' : '(주)동우건설 ') + '호남고속선 재해예방공사 현장 현장소장 ' + (mgrName || GJ_MGR_DEFAULT);
+}
+/** 'at|by|to|n' 로 적어 둔 마지막 발송 기록 */
+function docMailInfo_(o) {
+  const a = String(o.mail || '').split('|');
+  if (a.length < 4 || !a[0]) return null;
+  return { at: a[0], by: a[1], to: a[2], n: Number(a[3]) || 0 };
+}
+/** 받는 사람 목록: 기본값은 본사. 바꿀 수 있는 사람은 현장소장뿐. */
+function mailTo_(raw, me) {
+  const s = String(raw === undefined || raw === null ? '' : raw).trim();
+  if (!s) return { list: [HQ_MAIL_TO] };
+  if (me.role !== MANAGER_ROLE) return { err: fail_('FORBIDDEN', '받는 사람은 현장소장만 바꿀 수 있습니다.') };
+  const seen = {}, list = [];
+  const parts = s.split(/[,;\s]+/).filter(Boolean);
+  for (let i = 0; i < parts.length; i++) {
+    const e = parts[i].toLowerCase();
+    if (!/^[a-z0-9._%+\-]{1,64}@[a-z0-9.\-]{1,190}\.[a-z]{2,}$/.test(e)) return { err: fail_('PARAM', '메일 주소가 올바르지 않습니다: ' + parts[i].slice(0, 60)) };
+    if (!seen[e]) { seen[e] = 1; list.push(e); }
+  }
+  if (!list.length) return { list: [HQ_MAIL_TO] };
+  if (list.length > HQ_MAIL_MAX_TO) return { err: fail_('PARAM', '받는 사람은 ' + HQ_MAIL_MAX_TO + '명까지입니다.') };
+  return { list: list };
+}
+function mailSizeText_(n) { return n >= 1048576 ? (n / 1048576).toFixed(1) + 'MB' : Math.max(1, Math.round(n / 1024)) + 'KB'; }
+
+/** 제목·본문(메모 제외)을 만든다. 미리보기와 실제 발송이 같은 글이 되도록 한곳에서 만든다. */
+function docMailText_(o) {
+  const files = docFilesOf_(o);
+  const subject = '[호남고속선 재해예방공사] ' + o.kind + ' ' + o.docNo + ' ' + o.title;
+  const L = [];
+  L.push('안녕하세요. 호남고속선 정읍~광주송정 등 28개소 재해예방공사 현장입니다.');
+  L.push('아래 ' + o.kind + '를 송부하오니 검토 후 회신하여 주시기 바랍니다.');
+  L.push('');
+  L.push('■ 문서번호: ' + o.docNo);
+  L.push('■ 구분: ' + o.kind + (o.cat ? ' [' + o.cat + ']' : ''));
+  L.push('■ 제목: ' + o.title);
+  if (o.kind === '품의' && o.amount) L.push('■ 집행금액: ' + o.amount);
+  if (o.summary) { L.push('■ 요지:'); String(o.summary).split(/\r?\n/).forEach(function (t) { L.push('  ' + t); }); }
+  if (o.attach) L.push('■ 붙임: ' + o.attach);
+  L.push('');
+  L.push('첨부: 갑지 PDF 1건' + (files.length ? ', 붙임 파일 ' + files.length + '건' : ''));
+  files.forEach(function (f, i) { L.push('  ' + (i + 1) + '. ' + f.name + ' (' + mailSizeText_(Number(f.size) || 0) + ')'); L.push('     SHA-256 ' + f.sha); });
+  if (o.seal) { L.push(''); L.push('문서 SHA-256 봉인: ' + o.seal); }
+  return { subject: subject.slice(0, 200), body: L.join('\n'), files: files };
+}
+function docMailTail_(o, memo) {
+  return (memo ? '\n' + memo + '\n' : '') + '\n' + docSignoff_(o, o.approver) + '\n';
+}
+
+/** 보낼 수 있는 문서인지, 보낼 수 있는 사람인지 확인한다. */
+function docMailGuard_(req, me) {
+  if (me.role !== MANAGER_ROLE && me.role !== '공무') return { err: fail_('FORBIDDEN', '현장소장과 공무만 본사로 메일을 보낼 수 있습니다.') };
+  const sh = ensureDocSheet_(getDb_());
+  const o = docFind_(sh, String(req.id || ''));
+  if (!o) return { err: fail_('NOT_FOUND', '없는 문서입니다.') };
+  if (o.kind === '접수' || o.status !== DST.DONE) return { err: fail_('STATE', '확정된 품의·공문만 본사로 보낼 수 있습니다.') };
+  return { sh: sh, o: o };
+}
+function mailQuota_() { try { return MailApp.getRemainingDailyQuota(); } catch (e) { return null; } }
+
+/** 확인 화면용: 받는 사람·제목·본문·첨부 목록·남은 한도·이미 보냈는지. 아무것도 보내거나 바꾸지 않는다. */
+function mailPreview_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s;
+  const x = docMailGuard_(req, me); if (x.err) return x.err;
+  const o = x.o, t = docMailText_(o);
+  const total = t.files.reduce(function (a, f) { return a + (Number(f.size) || 0); }, 0);
+  return {
+    ok: true, id: o.id, docNo: o.docNo, to: HQ_MAIL_TO, canEditTo: me.role === MANAGER_ROLE, maxTo: HQ_MAIL_MAX_TO,
+    subject: t.subject, body: t.body, tail: docMailTail_(o, ''), files: t.files.map(docFilePublic_),
+    gapjiName: o.docNo + '_' + safeName_(o.title) + '_갑지.pdf', totalBytes: total, maxBytes: HQ_MAIL_MAX_BYTES,
+    quota: mailQuota_(), already: docMailInfo_(o), hq: o.hq
+  };
+}
+
+function sendHqMail_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s;
+  if (me.role !== MANAGER_ROLE && me.role !== '공무') return fail_('FORBIDDEN', '현장소장과 공무만 본사로 메일을 보낼 수 있습니다.');
+  const tt = mailTo_(req.to, me); if (tt.err) return tt.err;
+  const memo = cleanMulti_(req.memo, 300);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const x = docMailGuard_(req, me); if (x.err) return x.err;
+    const sh = x.sh, o = x.o;
+    const prev = docMailInfo_(o);
+    if (prev && req.confirmResend !== true) return fail_('DUP', '이미 ' + prev.at + ' 에 ' + prev.by + ' 님이 ' + prev.to + ' (으)로 보냈습니다.', { already: prev });
+    const total0 = docFilesOf_(o).reduce(function (a, f) { return a + (Number(f.size) || 0); }, 0);
+    if (total0 > HQ_MAIL_MAX_BYTES) return fail_('SIZE', '붙임 파일 합계가 ' + mailSizeText_(total0) + '로 메일 한도(' + mailSizeText_(HQ_MAIL_MAX_BYTES) + ')를 넘습니다. 파일을 줄이거나 나눠 주세요.');
+    const q = mailQuota_();
+    if (q === null) return fail_('MAILAUTH', '메일 보내기 권한이 아직 승인되지 않았습니다. 현장소장이 서버(Apps Script)에서 한 번 승인해야 합니다.');
+    if (q < tt.list.length) return fail_('QUOTA', '오늘 보낼 수 있는 메일 한도를 다 썼습니다. 내일 다시 보내 주세요.');
+    // 갑지 PDF 를 최신 내용으로 다시 만든다(확정 문서의 하단 문구·봉인을 맞추기 위해)
+    const warn0 = gapjiRefresh_(o);
+    if (warn0.length) return fail_('PDF', warn0[0]);
+    docWrite_(sh, o, o._row);
+    const blobs = [];
+    try {
+      const gm = /\/file\/d\/([^\/]+)/.exec(String(o.gapji || ''));
+      if (!gm) return fail_('PDF', '갑지 PDF를 찾을 수 없습니다.');
+      blobs.push(DriveApp.getFileById(gm[1]).getBlob().copyBlob().setName(o.docNo + '_' + safeName_(o.title) + '_갑지.pdf'));
+    } catch (e) { return fail_('PDF', '갑지 PDF를 읽지 못했습니다.'); }
+    const files = docFilesOf_(o);
+    for (let i = 0; i < files.length; i++) {
+      let b;
+      try { b = DriveApp.getFileById(files[i].fid).getBlob(); } catch (e) { return fail_('NOT_FOUND', '드라이브에서 첨부파일을 찾을 수 없습니다: ' + files[i].name); }
+      if (sha256Hex_(b.getBytes()) !== files[i].sha) return fail_('HASH', '첨부파일 「' + files[i].name + '」이(가) 올릴 때와 다릅니다. 보내지 않았습니다.');
+      blobs.push(b.copyBlob().setName(files[i].name));
+    }
+    const total = blobs.reduce(function (a, b) { return a + b.getBytes().length; }, 0);
+    if (total > HQ_MAIL_MAX_BYTES) return fail_('SIZE', '첨부 합계가 ' + mailSizeText_(total) + '로 메일 한도(' + mailSizeText_(HQ_MAIL_MAX_BYTES) + ')를 넘습니다.');
+    const t = docMailText_(o);
+    const at = nowStr_();
+    try {
+      MailApp.sendEmail({ to: tt.list.join(','), subject: t.subject, body: t.body + docMailTail_(o, memo), name: HQ_MAIL_NAME, attachments: blobs });
+    } catch (e) {
+      const m = String(e && e.message || e);
+      mailLog_(me.id, o.docNo, tt.list.join(','), t.subject, blobs.length, total, '실패: ' + m.slice(0, 120));
+      if (/permission|권한|authoriz/i.test(m)) return fail_('MAILAUTH', '메일 보내기 권한이 아직 승인되지 않았습니다. 현장소장이 서버(Apps Script)에서 한 번 승인해야 합니다.');
+      if (/too many|quota|한도/i.test(m)) return fail_('QUOTA', '오늘 보낼 수 있는 메일 한도를 다 썼습니다. 내일 다시 보내 주세요.');
+      return fail_('MAIL', '메일을 보내지 못했습니다. 잠시 뒤 다시 시도해 주세요.');
+    }
+    // 보냈다 — 이제부터는 기록이 실패해도 보낸 사실은 돌려준다
+    o.mail = [at, me.name, tt.list.join(','), blobs.length].join('|');
+    let warn = [];
+    if (!o.hq) { o.hq = '제출'; o.hqBy = me.name; o.hqAt = at; o.hqSubmitAt = at; o.hqNote = '메일 발송: ' + tt.list.join(','); warn = gapjiRefresh_(o); }
+    docWrite_(sh, o, o._row);
+    audit_(me.id, '문서메일발송', o.docNo + ' → ' + tt.list.join(',') + ' / 첨부 ' + blobs.length + '건');
+    mailLog_(me.id, o.docNo, tt.list.join(','), t.subject, blobs.length, total, '발송');
+    return { ok: true, item: docPublic_(o), warn: warn, sent: { to: tt.list, n: blobs.length, at: at } };
+  } finally {
+    lock.releaseLock();
+  }
+}
+function mailLog_(id, target, to, subject, n, bytes, result) {
+  try { ensureSheet_(getDb_(), SHEET_MAIL, ['시각', '로그인ID', '대상', '받는사람', '제목', '첨부수', '첨부크기', '결과']).appendRow([nowStr_(), id, target, to, subject, n, bytes, result]); } catch (e) { }
+}
+/** 편집기에서 한 번 실행: 메일 보내기 권한 승인 창을 띄우고 오늘 남은 발송 한도를 로그에 남긴다. 메일은 보내지 않는다. */
+function mailAuthTest() { Logger.log('메일 보내기 권한 확인 완료. 오늘 남은 발송 한도: ' + MailApp.getRemainingDailyQuota()); }
 
 /** 확정된 품의·공문의 본사 제출·확인 표시. 제출: 현장소장·공무, 확인: 현장소장(제출 뒤), 취소: 현장소장(사유 필수). */
 function hqDoc_(req) {
