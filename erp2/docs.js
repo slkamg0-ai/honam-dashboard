@@ -86,7 +86,7 @@
     function cell(row, node, cls) { var td = row.appendChild(el('td', cls || '')); td.appendChild(node); return td; }
     var hq = m.hq || {};
     // 기안
-    cell(r2, m.drafted ? seal('기안', m.author) : ph('미날인')); cell(r3, m.drafted ? document.createTextNode(mmdd(m.date)) : ph(' '), 'gj-date');
+    cell(r2, ph(' ')); cell(r3, ph(' '), 'gj-date'); // 기안 칸은 도장·날짜 없이 공란
     // 현장소장
     if (m.approver) { cell(r2, seal('현장소장', m.approver)); cell(r3, document.createTextNode(mmdd(m.approvedAt)), 'gj-date'); }
     else { cell(r2, ph(m.status === '승인대기' ? '승인대기' : '미날인')); cell(r3, ph(' '), 'gj-date'); }

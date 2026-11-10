@@ -77,7 +77,7 @@ function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.14' }; }
+function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.15' }; }
 
 function route_(req) {
   const t0 = Date.now();
@@ -1612,6 +1612,27 @@ const GJ_CAT_LONG = { '현장품의': '[현장품의] 하도급 기성 / 자재 
   '본사문서': '[본사문서] 본사 업무연락 / 현황보고 / 일반공문', '대관공문': '[대관공문] 감리단 / 국가철도공단 대관 발신공문', '안전점검': '[안전점검] 안전관리 / 작업계획서 / 재해예방 점검 보고', '기타': '[기타항목] 대외협조 / 민원회신 / 기타 일반문서' };
 const GJ_MGR_DEFAULT = '임석인';
 
+// ── 도장 이미지(스캔 도장) ──
+// 이름 → 드라이브 PNG 파일 ID. 여기에 없는 사람이나 읽기 실패 때는 지금까지처럼 글자 도장(자동 인장)을 찍는다.
+// 파일은 「직인_및_결재도장_보관함」 폴더에 있으며 공유 링크가 없다. 서버(스크립트 소유자)만 읽는다.
+const STAMP_IMAGES = { '임석인': '1jqhlenI-JaXJHlP368ALEZjb4hAvFb5N' };
+const STAMP_MAX_BYTES = 300 * 1024;
+const STAMP_CACHE_ = {};
+/** 도장 이미지를 base64 로 읽는다(한 번 실행 동안 캐시). 없거나 PNG 가 아니거나 크면 빈 문자열. */
+function stampB64_(name) {
+  const id = STAMP_IMAGES[String(name || '').trim()];
+  if (!id) return '';
+  if (Object.prototype.hasOwnProperty.call(STAMP_CACHE_, id)) return STAMP_CACHE_[id];
+  let out = '';
+  try {
+    const blob = DriveApp.getFileById(id).getBlob();
+    const bytes = blob.getBytes();
+    if (blob.getContentType() === 'image/png' && bytes.length > 0 && bytes.length <= STAMP_MAX_BYTES) out = Utilities.base64Encode(bytes);
+  } catch (e) { out = ''; }
+  STAMP_CACHE_[id] = out;
+  return out;
+}
+
 function gjEsc_(t) { return String(t === undefined || t === null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 function gjSize_(n) { n = Number(n) || 0; return n >= 1048576 ? (n / 1048576).toFixed(1) + 'MB' : Math.max(1, Math.round(n / 1024)) + 'KB'; }
 function gjMmdd_(s) { s = String(s || ''); return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(5, 7) + '/' + s.slice(8, 10) : ''; }
@@ -1623,6 +1644,8 @@ function gapjiHtml_(o) {
   const approver = o.status === DST.DONE ? o.approver : '';
   const ph = function (t) { return '<span style="color:#94a3b8;font-size:10px">' + gjEsc_(t) + '</span>'; };
   const seal = function (role, name) {
+    const b64 = role === '현장소장' ? stampB64_(name) : '';
+    if (b64) return '<img src="data:image/png;base64,' + b64 + '" width="56" height="56" style="display:block;margin:0 auto">';
     return '<div style="width:50px;height:50px;border:2px solid #c81e1e;border-radius:25px;color:#c81e1e;font-weight:bold;text-align:center;margin:0 auto">' +
       '<div style="padding-top:9px;font-size:9px;line-height:11px">' + gjEsc_(role) + '<br><span style="font-size:11px">' + gjEsc_(String(name || '').slice(0, 4)) + '</span></div></div>';
   };
@@ -1652,10 +1675,10 @@ function gapjiHtml_(o) {
   h.push('<th rowspan="3" style="' + TH + ';width:20px">결<br>재</th>');
   [['기 안', '(작성자)'], ['현장소장', '(현장대리인)'], ['부사장', '(본사 확인)'], ['회 장', '(본사 결재)']].forEach(function (x) { h.push('<th style="' + TH + '">' + x[0] + '<br><span style="font-weight:normal;font-size:9px">' + x[1] + '</span></th>'); });
   h.push('</tr><tr>');
-  h.push('<td style="' + SC + '">' + (drafted ? seal('기안', o.author) : ph('미날인')) + '</td>');
+  h.push('<td style="' + SC + '">' + '&nbsp;' + '</td>');
   h.push('<td style="' + SC + '">' + (approver ? seal('현장소장', approver) : ph(o.status === DST.APPROVAL ? '승인대기' : '미날인')) + '</td>');
   h.push('<td style="' + SC + '">' + vpCell + '</td><td style="' + SC + '">' + ph('서명') + '</td></tr><tr>');
-  h.push('<td style="' + SD + '">' + (drafted ? gjEsc_(gjMmdd_(o.date)) : '&nbsp;') + '</td>');
+  h.push('<td style="' + SD + '">' + '&nbsp;' + '</td>');
   h.push('<td style="' + SD + '">' + (approver ? gjEsc_(gjMmdd_(o.approvedAt)) : '&nbsp;') + '</td>');
   h.push('<td style="' + SD + '">' + vpDate + '</td><td style="' + SD + '">&nbsp;</td></tr></table>');
   h.push('</td></tr></table>');
