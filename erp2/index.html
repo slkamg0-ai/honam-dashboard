@@ -31,6 +31,9 @@
   .bar .brand { flex: 1; min-width: 0; line-height: 1.25; }
   .bar .brand small { display: block; font-size: 11px; font-weight: 600; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .bar .brand b { display: block; font-size: 16px; font-weight: 800; letter-spacing: .2px; white-space: nowrap; }
+  .bar .brand b { overflow: hidden; text-overflow: ellipsis; }
+  .bar .hbtn { flex: none; background: #38bdf8; color: #0f2942; font-size: 14px; font-weight: 800; padding: 7px 12px; border-radius: 20px; white-space: nowrap; }
+  .bar .hbtn:hover { background: #7dd3fc; }
   .bar .mbtn { display: flex; align-items: center; gap: 7px; flex: none; max-width: 56%; background: rgba(255,255,255,.12); color: #fff; font-size: 13px; padding: 4px 10px 4px 5px; border-radius: 20px; }
   .bar .mbtn:hover, .bar .mbtn[aria-expanded=true] { background: rgba(255,255,255,.22); }
   .bar .av { flex: none; width: 28px; height: 28px; border-radius: 50%; background: #38bdf8; color: #0f2942; font-weight: 800; font-size: 14px; display: flex; align-items: center; justify-content: center; }
@@ -243,6 +246,7 @@
   <div class="bar">
     <div class="in">
       <div class="brand"><small>호남고속선 재해예방공사</small><b>HN28 현장 ERP</b></div>
+      <button type="button" class="hbtn hide" id="btnHome" aria-label="홈(첫 화면)으로">🏠 홈</button>
       <button type="button" class="mbtn" id="btnMenu" aria-haspopup="menu" aria-expanded="false" aria-controls="menu"><span class="av" id="whoAv" aria-hidden="true"></span><span id="who"></span><span class="car" aria-hidden="true">▼</span></button>
       <div class="menu hide" id="menu" role="menu">
         <button type="button" role="menuitem" id="btnOrg">조직표</button>
@@ -277,7 +281,7 @@
     <div id="vExp" class="hide">
       <div id="xList">
         <div class="panel">
-          <h3>경비 <button class="sm" id="xBack" style="float:right">돌아가기</button></h3>
+          <h3>경비 <button class="sm" id="xBack" style="float:right">← 홈으로</button></h3>
           <div class="xbar"><button class="sm" id="xPrev">◀</button><input type="month" id="xMonth"><button class="sm" id="xNext">▶</button><button class="sm" id="xThis">이번 달</button></div>
           <div class="chips" id="xFilters"></div>
           <div class="xsum" id="xSum"></div>
@@ -319,7 +323,7 @@
 
     <div id="vClose" class="hide">
       <div class="panel">
-        <h3>월 마감 <button class="sm" id="cBack" style="float:right">돌아가기</button></h3>
+        <h3>월 마감 <button class="sm" id="cBack" style="float:right">← 홈으로</button></h3>
         <div class="xbar"><button class="sm" id="cPrev">◀</button><input type="month" id="cMonth"><button class="sm" id="cNext">▶</button><button class="sm" id="cThis">이번 달</button></div>
         <div class="lockline hide" id="cLock"></div>
         <div class="cards" id="cSummary"></div>
@@ -340,7 +344,7 @@
     <div id="vOps" class="hide">
       <div id="oList">
         <div class="panel">
-          <h3>작업일보 <button class="sm" id="oBack" style="float:right">돌아가기</button></h3>
+          <h3>작업일보 <button class="sm" id="oBack" style="float:right">← 홈으로</button></h3>
           <div class="xbar"><button class="sm" id="oPrev">◀</button><input type="month" id="oMonth"><button class="sm" id="oNext">▶</button><button class="sm" id="oThis">이번 달</button></div>
           <div class="chips" id="oFilters"></div>
           <div class="xsum" id="oSum"></div>
@@ -384,7 +388,7 @@
     <div id="vTask" class="hide">
       <div id="tList">
         <div class="panel">
-          <h3>업무 지시 <button class="sm" id="tBack" style="float:right">돌아가기</button></h3>
+          <h3>업무 지시 <button class="sm" id="tBack" style="float:right">← 홈으로</button></h3>
           <div class="chips" id="tFilters"></div>
           <div class="xsum" id="tSum"></div>
           <div id="tItems"></div>
@@ -411,7 +415,7 @@
     <div id="vDoc" class="hide">
       <div id="dList">
         <div class="panel">
-          <h3>문서 <button class="sm" id="dBack" style="float:right">돌아가기</button></h3>
+          <h3>문서 <button class="sm" id="dBack" style="float:right">← 홈으로</button></h3>
           <div class="chips" id="dFilters"></div>
           <input type="text" id="dSearch" maxlength="40" autocomplete="off" placeholder="번호 · 제목 · 상대처 · 작성자 검색">
           <div class="xsum" id="dSum"></div>
@@ -454,7 +458,7 @@
 
     <div id="vOrg" class="hide">
       <div class="panel">
-        <h3><span id="orgTitle">조직표</span> <button class="sm" id="orgBack" style="float:right">돌아가기</button></h3>
+        <h3><span id="orgTitle">조직표</span> <button class="sm" id="orgBack" style="float:right">← 홈으로</button></h3>
         <div class="desc" id="orgIntro"></div>
         <div id="orgBody"></div>
         <div class="msg" id="orgMsg"></div>
@@ -468,7 +472,7 @@
 
     <div id="vAdmin" class="hide">
       <div class="panel">
-        <h3>직원 관리 <button class="sm" id="btnAdminBack" style="float:right">돌아가기</button></h3>
+        <h3>직원 관리 <button class="sm" id="btnAdminBack" style="float:right">← 홈으로</button></h3>
         <div id="tempBox" class="temp hide">
           <div id="tempWho" style="font-weight:800"></div>
           <div class="pin" id="tempPin"></div>
@@ -530,6 +534,11 @@
 
   // ── 다른 파일(expense.js)이 쓰는 연결 지점 ──
   var VIEWS = ['vHome', 'vOrg', 'vAdmin', 'vExp', 'vClose', 'vOps', 'vDoc', 'vTask'];
+  var HOME_BACK = { vOrg: 'orgBack', vAdmin: 'btnAdminBack', vExp: 'xBack', vClose: 'cBack', vOps: 'oBack', vDoc: 'dBack', vTask: 'tBack' };
+  $('btnHome').onclick = function () {
+    for (var v in HOME_BACK) if (!$(v).classList.contains('hide')) { $(HOME_BACK[v]).click(); window.scrollTo(0, 0); return; }
+    window.ERP2.showView('vHome'); window.scrollTo(0, 0);
+  };
   window.ERP2 = {
     $: $, el: function (tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; },
     api: function (action, data, ms) { var d = data || {}; d.token = token; return api(action, d, ms); },
@@ -537,7 +546,7 @@
     setMe: function (u) { if (me && u) { me.name = u.name || me.name; me.title = u.title || ''; me.duty = u.duty || ''; me.duties = u.duties || []; renderWho(); } },
     orgSetup: function (v) { if (v !== undefined) orgSetup = !!v; return orgSetup; },
     authLost: function (r) { return authLost(r); },
-    showView: function (name) { VIEWS.forEach(function (v) { $(v).classList.toggle('hide', v !== name); }); },
+    showView: function (name) { VIEWS.forEach(function (v) { $(v).classList.toggle('hide', v !== name); }); $('btnHome').classList.toggle('hide', name === 'vHome'); },
     onEnter: [], onLeave: []
   };
 
