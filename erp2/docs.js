@@ -50,7 +50,19 @@
   function mmdd(s) { s = String(s || ''); return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(5, 10).replace('-', '/') : ''; }
   function dots(s) { var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s || '')); return m ? m[1] + '. ' + m[2] + '. ' + m[3] + '.' : ''; }
   function ph(text) { return el('span', 'gj-ph', text); }
-  function seal(role, name) { var s = el('span', 'gj-seal'); s.appendChild(el('small', '', role)); s.appendChild(document.createTextNode(String(name || '').slice(0, 4))); return s; }
+  // 스캔 도장(서버가 로그인한 직원에게만 전달). 없거나 실패하면 글자 도장을 그대로 쓴다.
+  var STAMPS = null, stampsLoading = null;
+  function loadStamps() {
+    if (stampsLoading) return stampsLoading;
+    stampsLoading = E.api('getStamps', {}, 20000).then(function (r) { STAMPS = (r && r.ok && r.stamps) ? r.stamps : {}; return STAMPS; }, function () { STAMPS = {}; return STAMPS; });
+    return stampsLoading;
+  }
+  function stampImg(name) {
+    var im = document.createElement('img'); im.src = 'data:image/png;base64,' + STAMPS[name]; im.alt = '현장소장 ' + name;
+    im.style.cssText = 'width:56px;height:56px;display:block;margin:0 auto'; return im;
+  }
+  function seal(role, name) { if (role === '현장소장' && STAMPS && STAMPS[name]) return stampImg(name);
+    var s = el('span', 'gj-seal'); s.appendChild(el('small', '', role)); s.appendChild(document.createTextNode(String(name || '').slice(0, 4))); return s; }
   function gjBox(color, bg, l1, l2) { var b = el('span', 'gj-box'); b.style.color = color; b.style.background = bg; b.appendChild(document.createTextNode(l1)); if (l2) { b.appendChild(document.createElement('br')); b.appendChild(el('small', '', l2)); } return b; }
 
   /** 저장된 문서 → 갑지에 들어갈 값 */
@@ -135,6 +147,11 @@
   function paintSheet(host, m) {
     host.textContent = ''; var wrap = el('div', 'gj-wrap'); wrap.appendChild(buildSheet(m)); host.appendChild(wrap);
     fit(wrap); setTimeout(fitAll, 0);
+    // 확정된 문서(현장소장 도장 칸이 있는 갑지)는 도장 이미지를 처음 한 번 받아 온 뒤 다시 그린다
+    if (m.approver && STAMPS === null) {
+      var tok = host._gjTok = {};
+      loadStamps().then(function (st) { if (host._gjTok === tok && st[m.approver]) paintSheet(host, m); });
+    }
   }
 
   // ── 홈 타일 배지 ──

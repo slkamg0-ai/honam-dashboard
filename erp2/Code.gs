@@ -77,7 +77,7 @@ function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.15' }; }
+function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.16' }; }
 
 function route_(req) {
   const t0 = Date.now();
@@ -126,6 +126,7 @@ function route_(req) {
       case 'mailPreview': out = mailPreview_(req); break;
       case 'sendHqMail': out = sendHqMail_(req); break;
       case 'dashboard': out = dashboard_(req); break;
+      case 'getStamps': out = getStamps_(req); break;
       case 'listTasks': out = listTasks_(req); break;
       case 'saveTask': out = saveTask_(req); break;
       case 'doneTask': out = doneTask_(req); break;
@@ -1631,6 +1632,14 @@ function stampB64_(name) {
   } catch (e) { out = ''; }
   STAMP_CACHE_[id] = out;
   return out;
+}
+
+/** 화면 갑지 미리보기용 도장 이미지(base64). 로그인한 직원만 받는다. 없는 사람은 빠진다(화면이 글자 도장으로 대체). */
+function getStamps_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const stamps = {};
+  Object.keys(STAMP_IMAGES).forEach(function (n) { const b = stampB64_(n); if (b) stamps[n] = b; });
+  return { ok: true, stamps: stamps };
 }
 
 function gjEsc_(t) { return String(t === undefined || t === null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
