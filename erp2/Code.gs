@@ -77,7 +77,7 @@ function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.16' }; }
+function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.17' }; }
 
 function route_(req) {
   const t0 = Date.now();
@@ -127,6 +127,9 @@ function route_(req) {
       case 'sendHqMail': out = sendHqMail_(req); break;
       case 'dashboard': out = dashboard_(req); break;
       case 'getStamps': out = getStamps_(req); break;
+      case 'listDrafts': out = listDrafts_(req); break;
+      case 'importDraft': out = importDraft_(req); break;
+      case 'discardDraft': out = discardDraft_(req); break;
       case 'listTasks': out = listTasks_(req); break;
       case 'saveTask': out = saveTask_(req); break;
       case 'doneTask': out = doneTask_(req); break;
@@ -1949,6 +1952,82 @@ function listDocs_(req) {
   const rows = docRows_(ensureDocSheet_(getDb_()));
   rows.sort(function (a, b) { return a.docNo < b.docNo ? 1 : a.docNo > b.docNo ? -1 : 0; });
   return { ok: true, items: rows.map(docPublic_), next: docSeqHint_(), today: nowStr_().slice(0, 10) };
+}
+
+
+// ───────────────────────────── 초안함 (자동처리가 만든 품의·공문 초안) ─────────────────────────────
+// 자동처리(예약 작업)는 번호를 발급하지 않고 「초안함」 시트에 줄만 적는다. 공무·현장소장이 화면에서 「문서로 만들기」를 눌러야
+// 정식 문서(번호 발급·폴더·서식)가 생기고, 만든 사람이 작성자가 된다. 번호는 ERP 한 곳에서만 발급된다.
+const SHEET_DRAFT = '초안함';
+const DRAFT_HEADERS = ['초안ID', '구분', '문서구분', '일자', '수신·발신처', '제목', '집행금액', '본문', '붙임', '참조', '비고', '회신기한', '등록일시', '상태', '문서번호', '처리자'];
+function ensureDraftSheet_(ss) {
+  let sh = ss.getSheetByName(SHEET_DRAFT);
+  if (!sh) {
+    sh = ss.insertSheet(SHEET_DRAFT);
+    sh.getRange(1, 1, sh.getMaxRows(), DRAFT_HEADERS.length).setNumberFormat('@');
+    sh.getRange(1, 1, 1, DRAFT_HEADERS.length).setValues([DRAFT_HEADERS]);
+  }
+  return sh;
+}
+function draftRows_(sh) {
+  const n = sh.getLastRow(); if (n < 2) return [];
+  const tx = function (v) { return v instanceof Date ? Utilities.formatDate(v, 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss') : String(v === undefined || v === null ? '' : v); };
+  return sh.getRange(2, 1, n - 1, DRAFT_HEADERS.length).getValues().map(function (r, k) {
+    r = r.map(tx);
+    return { _row: k + 2, id: String(r[0]), kind: String(r[1]), cat: String(r[2]), date: String(r[3]).slice(0, 10), party: String(r[4]), title: String(r[5]), amount: String(r[6]),
+      summary: String(r[7]), attach: String(r[8]), ref: String(r[9]), note: String(r[10]), due: String(r[11]).slice(0, 10), created: String(r[12]), state: String(r[13]), docNo: String(r[14]), by: String(r[15]) };
+  }).filter(function (d) { return d.id; });
+}
+function draftGuard_(req) {
+  const g = expAuth_(req); if (g.err) return g;
+  if (g.s.role !== MANAGER_ROLE && g.s.role !== '공무') return { err: fail_('FORBIDDEN', '공무·현장소장만 자동 초안을 다룰 수 있습니다.') };
+  return g;
+}
+function draftPublic_(d) { return { id: d.id, kind: d.kind, cat: d.cat, date: d.date, party: d.party, title: d.title, amount: d.amount, summary: d.summary, attach: d.attach, created: d.created }; }
+
+function listDrafts_(req) {
+  const g = draftGuard_(req); if (g.err) return g.err;
+  const rows = draftRows_(ensureDraftSheet_(getDb_())).filter(function (d) { return d.state === '대기'; });
+  return { ok: true, items: rows.map(draftPublic_) };
+}
+
+/** 초안 → 정식 문서(작성중). saveDoc_ 와 같은 검증·번호·폴더 절차를 그대로 쓴다. */
+function importDraft_(req) {
+  const g = draftGuard_(req); if (g.err) return g.err;
+  const id = String(req.id || '');
+  const sh = ensureDraftSheet_(getDb_());
+  let d = null;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try { // 같은 초안을 두 번 만들지 않도록 먼저 차지한다
+    d = draftRows_(sh).filter(function (x) { return x.id === id; })[0];
+    if (!d) return fail_('NOT_FOUND', '없는 초안입니다.');
+    if (d.state !== '대기') return fail_('STATE', '이미 처리된 초안입니다(' + d.state + (d.docNo ? ' ' + d.docNo : '') + ').');
+    sh.getRange(d._row, 14).setValue('처리중');
+  } finally { lock.releaseLock(); }
+  const body = { token: req.token, kind: d.kind, cat: d.cat, date: d.date || undefined, party: d.party, title: d.title, amount: d.amount, summary: d.summary, attach: d.attach, ref: d.ref, note: d.note, due: d.due || undefined };
+  let r;
+  try { r = saveDoc_(body); } catch (e) { r = fail_('SERVER', '문서를 만들지 못했습니다.'); }
+  if (!r || !r.ok) { sh.getRange(d._row, 14).setValue('대기'); return r; }
+  sh.getRange(d._row, 14, 1, 3).setValues([['가져옴', r.item.docNo, g.s.name]]);
+  audit_(g.s.id, '초안가져오기', d.id + ' → ' + r.item.docNo);
+  return r;
+}
+
+function discardDraft_(req) {
+  const g = draftGuard_(req); if (g.err) return g.err;
+  const id = String(req.id || '');
+  const sh = ensureDraftSheet_(getDb_());
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const d = draftRows_(sh).filter(function (x) { return x.id === id; })[0];
+    if (!d) return fail_('NOT_FOUND', '없는 초안입니다.');
+    if (d.state !== '대기') return fail_('STATE', '이미 처리된 초안입니다.');
+    sh.getRange(d._row, 14, 1, 3).setValues([['버림', '', g.s.name]]);
+    audit_(g.s.id, '초안버림', d.id + ' ' + d.title);
+    return { ok: true };
+  } finally { lock.releaseLock(); }
 }
 
 function saveDoc_(req) {

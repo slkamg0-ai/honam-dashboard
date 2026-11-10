@@ -173,7 +173,7 @@
   E.onLeave.push(function () { items = []; next = {}; F = null; filter = 'all'; query = ''; $('dItems').textContent = ''; $('dDetail').textContent = ''; $('dSum').textContent = ''; $('dSearch').value = ''; $('dPrev').textContent = ''; $('dFileList').textContent = ''; });
 
   // ── 목록 ──
-  function openList() { E.showView('vDoc'); pane('list'); buildFilters(); load(); }
+  function openList() { E.showView('vDoc'); pane('list'); buildFilters(); load(); loadDrafts(); }
   $('tileDoc').onclick = openList;
   $('dBack').onclick = function () { E.showView('vHome'); refreshBadge(); };
 
@@ -187,6 +187,46 @@
     });
   }
   $('dSearch').oninput = function () { query = $('dSearch').value.trim().toLowerCase(); render(); };
+
+  // ── 자동 초안(초안함): 공무·현장소장에게만 보인다 ──
+  function loadDrafts() {
+    var box = $('dDrafts'); box.textContent = '';
+    if (!isGm()) return;
+    E.api('listDrafts', {}, 20000).then(function (r) {
+      box.textContent = '';
+      if (!r || !r.ok || !r.items || !r.items.length) return;
+      var wrap = el('div', 'panel'); wrap.style.cssText = 'background:#fffbeb;border:1px solid #f59e0b;margin:8px 0';
+      wrap.appendChild(el('div', '', '자동 작성된 초안 ' + r.items.length + '건 — 확인 후 「문서로 만들기」를 누르면 번호가 발급됩니다.')).style.fontWeight = '700';
+      r.items.forEach(function (it) {
+        var card = el('div'); card.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px dashed #f59e0b';
+        card.appendChild(el('div', '', '[' + it.kind + (it.cat ? ' · ' + it.cat : '') + '] ' + it.title)).style.fontWeight = '700';
+        card.appendChild(el('div', 'desc', (it.party ? '수신: ' + it.party + ' · ' : '') + (it.amount ? '집행금액: ' + it.amount : '') + ' · 등록 ' + it.created));
+        var det = el('details'); det.appendChild(el('summary', '', '내용 보기'));
+        var pre = el('div', '', it.summary); pre.style.cssText = 'white-space:pre-wrap;font-size:13px;line-height:1.6;margin:6px 0'; det.appendChild(pre);
+        if (it.attach) det.appendChild(el('div', 'desc', '붙임: ' + it.attach));
+        card.appendChild(det);
+        var row = el('div'); row.style.marginTop = '6px';
+        var ok = el('button', 'sm', '문서로 만들기'); ok.type = 'button';
+        var no = el('button', 'sm', '버리기'); no.type = 'button'; no.style.marginLeft = '6px';
+        ok.onclick = function () {
+          ok.disabled = no.disabled = true;
+          E.api('importDraft', { id: it.id }, 60000).then(function (x) {
+            if (E.authLost(x)) return;
+            if (!x.ok) { ok.disabled = no.disabled = false; setMsg('dMsg', x.message || '문서를 만들지 못했습니다.'); return; }
+            setMsg('dMsg', '「' + x.item.docNo + '」 문서를 만들었습니다. 작성중 상태이니 열어서 고친 뒤 제출하세요.' + (x.warn && x.warn.length ? ' (경고: ' + [].concat(x.warn).join(' ') + ')' : ''), true);
+            load(); loadDrafts();
+          });
+        };
+        no.onclick = function () {
+          if (!window.confirm('이 초안을 버릴까요? (시트에는 기록이 남습니다)')) return;
+          ok.disabled = no.disabled = true;
+          E.api('discardDraft', { id: it.id }, 20000).then(function (x) { if (E.authLost(x)) return; if (!x.ok) { ok.disabled = no.disabled = false; setMsg('dMsg', x.message || '실패했습니다.'); return; } loadDrafts(); });
+        };
+        row.appendChild(ok); row.appendChild(no); card.appendChild(row); wrap.appendChild(card);
+      });
+      box.appendChild(wrap);
+    });
+  }
 
   var seq = 0;
   function load() {
