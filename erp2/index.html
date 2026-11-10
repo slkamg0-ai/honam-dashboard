@@ -251,6 +251,7 @@
       <div class="menu hide" id="menu" role="menu">
         <button type="button" role="menuitem" id="btnOrg">조직표</button>
         <button type="button" role="menuitem" id="btnAdmin" class="hide">직원 관리</button>
+        <button type="button" role="menuitem" id="btnStamp">내 도장·서명</button>
         <button type="button" role="menuitem" id="btnChange">PIN 변경</button>
         <button type="button" role="menuitem" id="btnLogout" class="out">로그아웃</button>
       </div>
@@ -457,6 +458,23 @@
       </div>
     </div>
 
+    <div id="vStamp" class="hide">
+      <div class="panel">
+        <h3>내 도장·서명 <button class="sm" id="stBack" style="float:right">← 홈으로</button></h3>
+        <div class="desc" id="stWho"></div>
+        <div class="desc">도장이나 서명을 찍은 사진·스캔 파일(PNG·JPG)을 올리면 갑지의 결재란에 내 이름으로 찍힙니다. 흰 바탕은 자동으로 투명하게 바뀝니다. 본인만 올리고 지울 수 있습니다.</div>
+        <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin:12px 0">
+          <div id="stNow" style="width:120px;height:120px;border:1px solid #cbd5e1;border-radius:8px;display:flex;align-items:center;justify-content:center;background:#fff;font-size:12px;color:#94a3b8">등록된 도장 없음</div>
+          <div id="stNew" class="hide" style="width:120px;height:120px;border:2px dashed #2563eb;border-radius:8px;display:flex;align-items:center;justify-content:center;background:#fff"></div>
+        </div>
+        <input type="file" id="stFile" accept="image/png,image/jpeg">
+        <div style="margin-top:10px">
+          <button type="button" id="stSave" disabled>이 도장으로 저장</button>
+          <button type="button" class="sm" id="stDel" style="margin-left:8px">내가 올린 도장 지우기</button>
+        </div>
+        <div class="msg" id="stMsg"></div>
+      </div>
+    </div>
     <div id="vOrg" class="hide">
       <div class="panel">
         <h3><span id="orgTitle">조직표</span> <button class="sm" id="orgBack" style="float:right">← 홈으로</button></h3>
@@ -534,8 +552,8 @@
   }
 
   // ── 다른 파일(expense.js)이 쓰는 연결 지점 ──
-  var VIEWS = ['vHome', 'vOrg', 'vAdmin', 'vExp', 'vClose', 'vOps', 'vDoc', 'vTask'];
-  var HOME_BACK = { vOrg: 'orgBack', vAdmin: 'btnAdminBack', vExp: 'xBack', vClose: 'cBack', vOps: 'oBack', vDoc: 'dBack', vTask: 'tBack' };
+  var VIEWS = ['vHome', 'vOrg', 'vStamp', 'vAdmin', 'vExp', 'vClose', 'vOps', 'vDoc', 'vTask'];
+  var HOME_BACK = { vOrg: 'orgBack', vStamp: 'stBack', vAdmin: 'btnAdminBack', vExp: 'xBack', vClose: 'cBack', vOps: 'oBack', vDoc: 'dBack', vTask: 'tBack' };
   $('btnHome').onclick = function () {
     for (var v in HOME_BACK) if (!$(v).classList.contains('hide')) { $(HOME_BACK[v]).click(); window.scrollTo(0, 0); return; }
     window.ERP2.showView('vHome'); window.scrollTo(0, 0);
@@ -736,6 +754,7 @@
 <script src="docs.js"></script>
 <script src="tasks.js"></script>
 <script src="org.js"></script>
+<script src="stamp.js"></script>
 <script src="dash.js"></script>
 </body>
 </html>

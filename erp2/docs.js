@@ -58,10 +58,11 @@
     return stampsLoading;
   }
   function stampImg(name) {
-    var im = document.createElement('img'); im.src = 'data:image/png;base64,' + STAMPS[name]; im.alt = '현장소장 ' + name;
+    var im = document.createElement('img'); im.src = 'data:image/png;base64,' + STAMPS[name]; im.alt = '도장 ' + name;
     im.style.cssText = 'width:56px;height:56px;display:block;margin:0 auto'; return im;
   }
-  function seal(role, name) { if (role === '현장소장' && STAMPS && STAMPS[name]) return stampImg(name);
+  E.resetStamps = function () { STAMPS = null; stampsLoading = null; };
+  function seal(role, name) { if (STAMPS && STAMPS[name]) return stampImg(name);
     var s = el('span', 'gj-seal'); s.appendChild(el('small', '', role)); s.appendChild(document.createTextNode(String(name || '').slice(0, 4))); return s; }
   function gjBox(color, bg, l1, l2) { var b = el('span', 'gj-box'); b.style.color = color; b.style.background = bg; b.appendChild(document.createTextNode(l1)); if (l2) { b.appendChild(document.createElement('br')); b.appendChild(el('small', '', l2)); } return b; }
 
@@ -98,7 +99,9 @@
     function cell(row, node, cls) { var td = row.appendChild(el('td', cls || '')); td.appendChild(node); return td; }
     var hq = m.hq || {};
     // 기안
-    cell(r2, ph(' ')); cell(r3, ph(' '), 'gj-date'); // 기안 칸은 도장·날짜 없이 공란
+    // 기안 칸: 작성자가 직접 올린 도장이 있을 때만 찍는다(없으면 공란)
+    if (m.drafted && STAMPS && STAMPS[m.author]) { cell(r2, stampImg(m.author)); cell(r3, document.createTextNode(mmdd(m.date)), 'gj-date'); }
+    else { cell(r2, ph(' ')); cell(r3, ph(' '), 'gj-date'); }
     // 현장소장
     if (m.approver) { cell(r2, seal('현장소장', m.approver)); cell(r3, document.createTextNode(mmdd(m.approvedAt)), 'gj-date'); }
     else { cell(r2, ph(m.status === '승인대기' ? '승인대기' : '미날인')); cell(r3, ph(' '), 'gj-date'); }
@@ -148,9 +151,9 @@
     host.textContent = ''; var wrap = el('div', 'gj-wrap'); wrap.appendChild(buildSheet(m)); host.appendChild(wrap);
     fit(wrap); setTimeout(fitAll, 0);
     // 확정된 문서(현장소장 도장 칸이 있는 갑지)는 도장 이미지를 처음 한 번 받아 온 뒤 다시 그린다
-    if (m.approver && STAMPS === null) {
+    if ((m.approver || m.drafted) && STAMPS === null) {
       var tok = host._gjTok = {};
-      loadStamps().then(function (st) { if (host._gjTok === tok && st[m.approver]) paintSheet(host, m); });
+      loadStamps().then(function (st) { if (host._gjTok === tok && (st[m.approver] || st[m.author])) paintSheet(host, m); });
     }
   }
 

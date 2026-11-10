@@ -77,7 +77,7 @@ function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.17' }; }
+function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.18' }; }
 
 function route_(req) {
   const t0 = Date.now();
@@ -127,6 +127,9 @@ function route_(req) {
       case 'sendHqMail': out = sendHqMail_(req); break;
       case 'dashboard': out = dashboard_(req); break;
       case 'getStamps': out = getStamps_(req); break;
+      case 'getMyStamp': out = getMyStamp_(req); break;
+      case 'saveMyStamp': out = saveMyStamp_(req); break;
+      case 'deleteMyStamp': out = deleteMyStamp_(req); break;
       case 'listDrafts': out = listDrafts_(req); break;
       case 'importDraft': out = importDraft_(req); break;
       case 'discardDraft': out = discardDraft_(req); break;
@@ -1622,9 +1625,29 @@ const GJ_MGR_DEFAULT = '임석인';
 const STAMP_IMAGES = { '임석인': '1jqhlenI-JaXJHlP368ALEZjb4hAvFb5N' };
 const STAMP_MAX_BYTES = 300 * 1024;
 const STAMP_CACHE_ = {};
+const STAMP_FOLDER = '10Em6J6DKTfON3d2CH5IKl8ujT51L6cRF'; // 직인_및_결재도장_보관함 (공유 링크 없음)
+/** 이름 → 도장 파일 ID. 본인이 화면에서 올린 도장(스크립트 속성 STAMP_<로그인ID>)이 먼저, 없으면 STAMP_IMAGES. 같은 이름이 둘이면 쓰지 않는다. */
+let stampIdx_ = null;
+function stampFileId_(name) {
+  name = String(name || '').trim(); if (!name) return '';
+  if (!stampIdx_) {
+    stampIdx_ = {};
+    try {
+      const props = PropertiesService.getScriptProperties().getProperties(), seen = {};
+      readUsers_(ensureUsersSheet_(getDb_())).forEach(function (r) {
+        const n = String(r[COL.name] || '').trim(); if (!n || r[COL.active] !== 'Y') return;
+        seen[n] = (seen[n] || 0) + 1;
+        const id = props['STAMP_' + r[COL.id]];
+        if (id) stampIdx_[n] = id;
+      });
+      Object.keys(seen).forEach(function (n) { if (seen[n] > 1) delete stampIdx_[n]; });
+    } catch (e) { stampIdx_ = {}; }
+  }
+  return stampIdx_[name] || STAMP_IMAGES[name] || '';
+}
 /** 도장 이미지를 base64 로 읽는다(한 번 실행 동안 캐시). 없거나 PNG 가 아니거나 크면 빈 문자열. */
 function stampB64_(name) {
-  const id = STAMP_IMAGES[String(name || '').trim()];
+  const id = stampFileId_(name);
   if (!id) return '';
   if (Object.prototype.hasOwnProperty.call(STAMP_CACHE_, id)) return STAMP_CACHE_[id];
   let out = '';
@@ -1637,11 +1660,48 @@ function stampB64_(name) {
   return out;
 }
 
+// ── 내 도장·서명: 본인이 직접 올리고 지운다 ──
+function getMyStamp_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  return { ok: true, name: g.s.name, stamp: stampB64_(g.s.name) };
+}
+function saveMyStamp_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const b64 = String(req.data || '');
+  if (!b64 || b64.length > Math.ceil(STAMP_MAX_BYTES / 3) * 4 + 4 || !/^[A-Za-z0-9+\/]+=*$/.test(b64)) return fail_('PARAM', '도장 이미지는 PNG, 300KB 이하만 올릴 수 있습니다.');
+  let bytes; try { bytes = Utilities.base64Decode(b64); } catch (e) { return fail_('PARAM', '이미지를 읽지 못했습니다.'); }
+  const sig = [137, 80, 78, 71, 13, 10, 26, 10];
+  for (let k = 0; k < 8; k++) if (((bytes[k] + 256) % 256) !== sig[k]) return fail_('PARAM', 'PNG 이미지만 올릴 수 있습니다.');
+  if (bytes.length > STAMP_MAX_BYTES) return fail_('PARAM', '도장 이미지는 300KB 이하만 올릴 수 있습니다.');
+  const lock = LockService.getScriptLock(); lock.waitLock(15000);
+  try {
+    const props = PropertiesService.getScriptProperties(), key = 'STAMP_' + g.s.id, old = props.getProperty(key);
+    const f = DriveApp.getFolderById(STAMP_FOLDER).createFile(Utilities.newBlob(bytes, 'image/png', 'stamp_' + g.s.id + '.png'));
+    props.setProperty(key, f.getId());
+    if (old && old !== f.getId()) { try { DriveApp.getFileById(old).setTrashed(true); } catch (e) { } }
+    stampIdx_ = null;
+    audit_(g.s.id, '도장등록', g.s.name);
+    return { ok: true };
+  } catch (e) { return fail_('DRIVE', '도장을 저장하지 못했습니다. 잠시 후 다시 해 주세요.'); }
+  finally { lock.releaseLock(); }
+}
+function deleteMyStamp_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const props = PropertiesService.getScriptProperties(), key = 'STAMP_' + g.s.id, old = props.getProperty(key);
+  if (!old) return fail_('STATE', '직접 올린 도장이 없습니다.');
+  props.deleteProperty(key);
+  try { DriveApp.getFileById(old).setTrashed(true); } catch (e) { }
+  stampIdx_ = null;
+  audit_(g.s.id, '도장삭제', g.s.name);
+  return { ok: true };
+}
+
 /** 화면 갑지 미리보기용 도장 이미지(base64). 로그인한 직원만 받는다. 없는 사람은 빠진다(화면이 글자 도장으로 대체). */
 function getStamps_(req) {
   const g = expAuth_(req); if (g.err) return g.err;
   const stamps = {};
-  Object.keys(STAMP_IMAGES).forEach(function (n) { const b = stampB64_(n); if (b) stamps[n] = b; });
+  stampFileId_('-'); // 색인 만들기
+  Object.keys(STAMP_IMAGES).concat(Object.keys(stampIdx_ || {})).forEach(function (n) { if (stamps[n]) return; const b = stampB64_(n); if (b) stamps[n] = b; });
   return { ok: true, stamps: stamps };
 }
 
@@ -1656,7 +1716,7 @@ function gapjiHtml_(o) {
   const approver = o.status === DST.DONE ? o.approver : '';
   const ph = function (t) { return '<span style="color:#94a3b8;font-size:10px">' + gjEsc_(t) + '</span>'; };
   const seal = function (role, name) {
-    const b64 = role === '현장소장' ? stampB64_(name) : '';
+    const b64 = stampB64_(name);
     if (b64) return '<img src="data:image/png;base64,' + b64 + '" width="56" height="56" style="display:block;margin:0 auto">';
     return '<div style="width:50px;height:50px;border:2px solid #c81e1e;border-radius:25px;color:#c81e1e;font-weight:bold;text-align:center;margin:0 auto">' +
       '<div style="padding-top:9px;font-size:9px;line-height:11px">' + gjEsc_(role) + '<br><span style="font-size:11px">' + gjEsc_(String(name || '').slice(0, 4)) + '</span></div></div>';
@@ -1687,10 +1747,10 @@ function gapjiHtml_(o) {
   h.push('<th rowspan="3" style="' + TH + ';width:20px">결<br>재</th>');
   [['기 안', '(작성자)'], ['현장소장', '(현장대리인)'], ['부사장', '(본사 확인)'], ['회 장', '(본사 결재)']].forEach(function (x) { h.push('<th style="' + TH + '">' + x[0] + '<br><span style="font-weight:normal;font-size:9px">' + x[1] + '</span></th>'); });
   h.push('</tr><tr>');
-  h.push('<td style="' + SC + '">' + '&nbsp;' + '</td>');
+  h.push('<td style="' + SC + '">' + (drafted && stampB64_(o.author) ? seal('기안', o.author) : '&nbsp;') + '</td>');
   h.push('<td style="' + SC + '">' + (approver ? seal('현장소장', approver) : ph(o.status === DST.APPROVAL ? '승인대기' : '미날인')) + '</td>');
   h.push('<td style="' + SC + '">' + vpCell + '</td><td style="' + SC + '">' + ph('서명') + '</td></tr><tr>');
-  h.push('<td style="' + SD + '">' + '&nbsp;' + '</td>');
+  h.push('<td style="' + SD + '">' + (drafted && stampB64_(o.author) ? gjEsc_(gjMmdd_(o.date)) : '&nbsp;') + '</td>');
   h.push('<td style="' + SD + '">' + (approver ? gjEsc_(gjMmdd_(o.approvedAt)) : '&nbsp;') + '</td>');
   h.push('<td style="' + SD + '">' + vpDate + '</td><td style="' + SD + '">&nbsp;</td></tr></table>');
   h.push('</td></tr></table>');
