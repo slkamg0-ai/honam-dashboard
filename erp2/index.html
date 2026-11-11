@@ -212,6 +212,46 @@
   .pv-body iframe { width: 100%; height: 100%; border: 0; background: #fff; }
   .pv-body img { max-width: 100%; max-height: 100%; object-fit: contain; }
   .gj-tg { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+
+  /* ── v2.20 이동 메뉴: 휴대폰은 하단 탭, PC(1024px 이상)는 왼쪽 메뉴 ── */
+  .nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; background: #fff; border-top: 1px solid #e2e8f0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); align-items: center; padding: 4px 4px calc(4px + env(safe-area-inset-bottom)); }
+  .nav .nv { position: relative; background: transparent; color: #475569; font-size: 11.5px; font-weight: 700; padding: 6px 2px; min-height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border-radius: 10px; }
+  .nav .nv svg { width: 22px; height: 22px; flex: none; }
+  .nav .nv[aria-current=page] { color: #1d4ed8; font-weight: 800; }
+  .nav .nv:focus-visible { outline: 2px solid #1d4ed8; }
+  .nav .nv.desk, .nav .sep { display: none; }
+  .nav .nv.plus { justify-self: center; width: 54px; height: 54px; min-height: 0; border-radius: 27px; background: #1d4ed8; color: #fff; margin-top: -20px; box-shadow: 0 4px 12px rgba(29,78,216,.35); }
+  .nav .nb { position: absolute; top: 2px; left: 54%; background: #dc2626; color: #fff; font-size: 10.5px; font-weight: 800; border-radius: 9px; padding: 1px 6px; line-height: 1.3; }
+  #vApp .wrap { padding-bottom: 96px; }
+  #xBack, #cBack, #oBack, #tBack, #dBack, #stBack, #orgBack, #btnAdminBack, #btnHome { display: none !important; }
+  #xNew, #oNew, #tNew, #dList .row-btns { position: sticky; bottom: 84px; z-index: 5; box-shadow: 0 -6px 12px rgba(241,245,249,.9); }
+  .sheet { position: fixed; inset: 0; z-index: 60; background: rgba(15,23,42,.45); display: flex; align-items: flex-end; justify-content: center; }
+  .sheet .sh-in { background: #fff; width: 100%; max-width: 520px; border-radius: 16px 16px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); }
+  .sheet h3 { margin: 0 0 8px; font-size: 16px; }
+  .sheet .sh-b { display: flex; flex-direction: column; gap: 6px; }
+  .sheet .sh-b button { text-align: left; background: #f8fafc; padding: 14px 12px; font-size: 15px; }
+  .sheet .sh-b button small { display: block; font-size: 12px; font-weight: 500; color: #475569; margin-top: 2px; }
+  .sheet .sh-x { width: 100%; margin-top: 10px; }
+  .apv-g { margin-top: 14px; } .apv-g:first-child { margin-top: 4px; }
+  .apv-g h4 { margin: 0 0 4px; font-size: 13px; color: #475569; }
+  .apv-note { font-size: 12.5px; color: #475569; line-height: 1.6; margin: 12px 0 0; }
+  @media (min-width: 1024px) {
+    .bar .in { max-width: none; padding: 8px 20px; }
+    .shell { display: flex; align-items: flex-start; }
+    .nav { position: sticky; top: 52px; left: auto; right: auto; bottom: auto; flex: none; width: 210px; height: calc(100vh - 52px); overflow-y: auto; display: flex; flex-direction: column; align-items: stretch; gap: 2px; padding: 14px 10px; border-top: 0; border-right: 1px solid #e2e8f0; }
+    .nav .nv { flex-direction: row; justify-content: flex-start; gap: 10px; font-size: 14.5px; min-height: 44px; padding: 0 12px; }
+    .nav .nv svg { width: 20px; height: 20px; }
+    .nav .nv[aria-current=page] { background: #eff6ff; }
+    .nav .nv.mob { display: none; }
+    .nav .nv.desk { display: flex; }
+    .nav .sep { display: block; height: 1px; background: #e2e8f0; margin: 8px 6px; }
+    .nav .nb { position: static; margin-left: auto; font-size: 11.5px; }
+    #vApp .wrap { flex: 1; min-width: 0; max-width: 1180px; padding: 16px 24px 24px; }
+    #xNew, #oNew, #tNew, #dList .row-btns { bottom: 12px; }
+    #vHome:not(.hide) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
+    #vHome .panel { margin: 0; }
+    #homeTiles { display: none; }
+  }
   @media (max-width: 520px) { .urow { grid-template-columns: 1fr; } .acts { justify-content: flex-start; } .grid2 { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -271,6 +311,20 @@
       </div>
     </div>
   </div>
+  <div class="shell">
+  <nav class="nav" id="nav" aria-label="주 메뉴">
+    <button type="button" class="nv" data-go="home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg><span>홈</span></button>
+    <button type="button" class="nv" data-go="apv"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg><span>결재함</span><b class="nb hide" id="navApvN"></b></button>
+    <button type="button" class="nv mob plus" data-go="new" aria-label="새로 쓰기" aria-haspopup="dialog"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+    <button type="button" class="nv desk" data-go="exp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/></svg><span>경비</span></button>
+    <button type="button" class="nv" data-go="doc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg><span>문서</span></button>
+    <button type="button" class="nv desk" data-go="ops"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3h8v4H8z"/><path d="M6 5H4v16h16V5h-2"/><path d="M8 12h8M8 16h5"/></svg><span>작업일보</span></button>
+    <button type="button" class="nv desk" data-go="task"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></svg><span>업무 지시</span></button>
+    <button type="button" class="nv desk" data-go="close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/><path d="M9 15l2 2 4-4"/></svg><span>월 마감</span></button>
+    <div class="sep" aria-hidden="true"></div>
+    <button type="button" class="nv desk" data-go="org"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="7" r="3"/><path d="M5 21v-2a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v2"/></svg><span>조직표</span></button>
+    <button type="button" class="nv mob" data-go="more" aria-haspopup="dialog"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span>더보기</span></button>
+  </nav>
   <div class="wrap">
     <div id="vHome">
       <div class="panel" id="dbToday">
@@ -278,7 +332,10 @@
         <div class="msg" id="dbMsg"></div>
         <div id="dbTodo"></div>
       </div>
-      <div class="panel">
+      <div class="panel hide" id="dbMonth"><h3><span id="dbMonthTitle">이번 달</span> <span class="dbpill" id="dbMonthState"></span></h3><div id="dbMonthBody"></div></div>
+      <div class="panel hide" id="dbBudget"><h3>실행예산 집행</h3><div id="dbBudgetBody"></div></div>
+      <div class="panel hide" id="dbSites"><h3>개소별 진행률</h3><div id="dbSitesBody"></div></div>
+      <div class="panel" id="homeTiles">
         <h3>업무 메뉴</h3>
         <div class="tiles">
           <button type="button" class="tile on" id="tileExp">경비 입력<small id="tileExpSub">영수증 등록 · 검토 · 승인</small></button>
@@ -288,9 +345,16 @@
           <button type="button" class="tile on" id="tileTask">업무 지시<small id="tileTaskSub">지시 · 기한 · 완료 확인</small></button>
         </div>
       </div>
-      <div class="panel hide" id="dbMonth"><h3><span id="dbMonthTitle">이번 달</span> <span class="dbpill" id="dbMonthState"></span></h3><div id="dbMonthBody"></div></div>
-      <div class="panel hide" id="dbSites"><h3>개소별 진행률</h3><div id="dbSitesBody"></div></div>
-      <div class="panel hide" id="dbBudget"><h3>실행예산 집행</h3><div id="dbBudgetBody"></div></div>
+    </div>
+
+    <div id="vApv" class="hide">
+      <div class="panel">
+        <h3>결재함 <button type="button" class="sm" id="apvRefresh" style="float:right">새로고침</button></h3>
+        <div class="msg" id="apvMsg"></div>
+        <div id="apvBody"></div>
+        <p class="apv-note">경비·문서·작업일보에서 내가 결재하거나 확인할 것, 반려되어 고칠 것, 기한이 지난 것을 한곳에 모았습니다. 줄을 누르면 그 화면으로 갑니다.</p>
+        <button type="button" class="hide" id="apvBack">홈으로</button>
+      </div>
     </div>
 
     <div id="vExp" class="hide">
@@ -532,6 +596,10 @@
       </div>
     </div>
   </div>
+  </div>
+</div>
+<div class="sheet hide" id="navSheet" role="dialog" aria-modal="true" aria-labelledby="navSheetT">
+  <div class="sh-in"><h3 id="navSheetT"></h3><div class="sh-b" id="navSheetBody"></div><button type="button" class="sh-x" id="navSheetClose">닫기</button></div>
 </div>
 
 <script src="config.js"></script>
@@ -566,8 +634,8 @@
   }
 
   // ── 다른 파일(expense.js)이 쓰는 연결 지점 ──
-  var VIEWS = ['vHome', 'vOrg', 'vStamp', 'vAdmin', 'vExp', 'vClose', 'vOps', 'vDoc', 'vTask'];
-  var HOME_BACK = { vOrg: 'orgBack', vStamp: 'stBack', vAdmin: 'btnAdminBack', vExp: 'xBack', vClose: 'cBack', vOps: 'oBack', vDoc: 'dBack', vTask: 'tBack' };
+  var VIEWS = ['vHome', 'vApv', 'vOrg', 'vStamp', 'vAdmin', 'vExp', 'vClose', 'vOps', 'vDoc', 'vTask'];
+  var HOME_BACK = { vApv: 'apvBack', vOrg: 'orgBack', vStamp: 'stBack', vAdmin: 'btnAdminBack', vExp: 'xBack', vClose: 'cBack', vOps: 'oBack', vDoc: 'dBack', vTask: 'tBack' };
   $('btnHome').onclick = function () {
     for (var v in HOME_BACK) if (!$(v).classList.contains('hide')) { $(HOME_BACK[v]).click(); window.scrollTo(0, 0); return; }
     window.ERP2.showView('vHome'); window.scrollTo(0, 0);
@@ -722,7 +790,7 @@
         if (u.mustChangePin) tags.appendChild(el('span', 'tag tmp', '임시PIN'));
         var sel = el('select'); ROLES.forEach(function (rl) { var o = el('option', '', rl); if (rl === u.role) o.selected = true; sel.appendChild(o); });
         sel.title = '권한'; sel.setAttribute('aria-label', u.name + ' 권한'); sel.disabled = self; sel.style.marginTop = '6px'; sel.style.padding = '7px'; sel.style.fontSize = '14px';
-        sel.onchange = function () { save({ loginId: u.loginId, role: sel.value }, u.name + ' 권한을 ' + sel.value + '(으)로 바꿨습니다. 해당 직원은 다시 로그인해야 합니다.'); };
+        sel.onchange = function () { save({ loginId: u.loginId, role: sel.value }, u.name + ' 권한을 ' + sel.value + '(으)로 바꿨습니다. 이 직원은 다시 로그인해야 합니다.'); };
         var mid = el('div'); mid.appendChild(tags); mid.appendChild(sel);
         var acts = el('div', 'acts');
         var bReset = el('button', 'sm', 'PIN 초기화');
@@ -770,5 +838,6 @@
 <script src="org.js"></script>
 <script src="stamp.js"></script>
 <script src="dash.js"></script>
+<script src="nav.js"></script>
 </body>
 </html>

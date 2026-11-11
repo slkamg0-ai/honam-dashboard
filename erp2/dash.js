@@ -139,7 +139,7 @@
     p.classList.remove('hide');
   }
 
-  function render(r) { last = r; setMsg(''); renderTodo(r); renderMonth(r); renderSites(r); renderBudget(r); }
+  function render(r) { last = r; setMsg(''); renderTodo(r); renderMonth(r); renderSites(r); renderBudget(r); (E.onDash || []).forEach(function (f) { try { f(r); } catch (e) {} }); }
 
   function load(force) {
     if (!E.me()) return;
@@ -157,6 +157,9 @@
     });
   }
   $('dbRefresh').onclick = function () { load(true); };
+  // nav.js(결재함·메뉴 건수)가 같은 값을 쓴다
+  E.onDash = E.onDash || [];
+  E.dash = { load: load, last: function () { return last; }, tone: TONE_RANK, go: GO };
   E.onEnter.push(function () { load(); });
   // 경비·작업일보·문서 화면에서 「돌아가기」로 홈에 오면 숫자를 다시 받는다
   var showView = E.showView;
