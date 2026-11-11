@@ -203,7 +203,7 @@
       r.items.forEach(function (it) {
         var card = el('div'); card.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px dashed #f59e0b';
         card.appendChild(el('div', '', '[' + it.kind + (it.cat ? ' · ' + it.cat : '') + '] ' + it.title)).style.fontWeight = '700';
-        card.appendChild(el('div', 'desc', (it.party ? '수신: ' + it.party + ' · ' : '') + (it.amount ? '집행금액: ' + it.amount : '') + ' · 등록 ' + it.created));
+        card.appendChild(el('div', 'desc', (it.party ? (it.kind === '접수' ? '보낸 곳: ' : '수신: ') + it.party + ' · ' : '') + (it.amount ? '집행금액: ' + it.amount + ' · ' : '') + (it.due ? '회신기한: ' + it.due + ' · ' : '') + (it.files ? '원본파일 ' + it.files + '건 · ' : '') + '등록 ' + it.created));
         var det = el('details'); det.appendChild(el('summary', '', '내용 보기'));
         var pre = el('div', '', it.summary); pre.style.cssText = 'white-space:pre-wrap;font-size:13px;line-height:1.6;margin:6px 0'; det.appendChild(pre);
         if (it.attach) det.appendChild(el('div', 'desc', '붙임: ' + it.attach));
@@ -216,7 +216,7 @@
           E.api('importDraft', { id: it.id }, 60000).then(function (x) {
             if (E.authLost(x)) return;
             if (!x.ok) { ok.disabled = no.disabled = false; setMsg('dMsg', x.message || '문서를 만들지 못했습니다.'); return; }
-            setMsg('dMsg', '「' + x.item.docNo + '」 문서를 만들었습니다. 작성중 상태이니 열어서 고친 뒤 제출하세요.' + (x.warn && x.warn.length ? ' (경고: ' + [].concat(x.warn).join(' ') + ')' : ''), true);
+            setMsg('dMsg', '「' + x.item.docNo + '」 문서를 만들었습니다.' + (it.kind === '접수' ? ' 접수 상태로 대장에 올랐습니다.' : ' 작성중 상태이니 열어서 고친 뒤 제출하세요.') + (x.warn && x.warn.length ? ' (경고: ' + [].concat(x.warn).join(' ') + ')' : ''), true);
             load(); loadDrafts();
           });
         };

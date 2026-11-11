@@ -77,7 +77,7 @@ function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.18' }; }
+function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.19' }; }
 
 function route_(req) {
   const t0 = Date.now();
@@ -2019,13 +2019,17 @@ function listDocs_(req) {
 // 자동처리(예약 작업)는 번호를 발급하지 않고 「초안함」 시트에 줄만 적는다. 공무·현장소장이 화면에서 「문서로 만들기」를 눌러야
 // 정식 문서(번호 발급·폴더·서식)가 생기고, 만든 사람이 작성자가 된다. 번호는 ERP 한 곳에서만 발급된다.
 const SHEET_DRAFT = '초안함';
-const DRAFT_HEADERS = ['초안ID', '구분', '문서구분', '일자', '수신·발신처', '제목', '집행금액', '본문', '붙임', '참조', '비고', '회신기한', '등록일시', '상태', '문서번호', '처리자'];
+const DRAFT_HEADERS = ['초안ID', '구분', '문서구분', '일자', '수신·발신처', '제목', '집행금액', '본문', '붙임', '참조', '비고', '회신기한', '등록일시', '상태', '문서번호', '처리자', '첨부파일ID'];
+// 첨부파일ID: 자동처리가 드라이브에 저장해 둔 원본(PDF 등)의 파일 ID. 쉼표로 여러 개. 「문서로 만들기」 때 문서 폴더로 복사해 붙임 파일로 단다.
 function ensureDraftSheet_(ss) {
   let sh = ss.getSheetByName(SHEET_DRAFT);
   if (!sh) {
     sh = ss.insertSheet(SHEET_DRAFT);
     sh.getRange(1, 1, sh.getMaxRows(), DRAFT_HEADERS.length).setNumberFormat('@');
     sh.getRange(1, 1, 1, DRAFT_HEADERS.length).setValues([DRAFT_HEADERS]);
+  } else if (sh.getLastColumn() < DRAFT_HEADERS.length) { // 예전 시트에 새 열(첨부파일ID) 머리글을 보탄다
+    sh.getRange(1, sh.getLastColumn() + 1, 1, DRAFT_HEADERS.length - sh.getLastColumn()).setValues([DRAFT_HEADERS.slice(sh.getLastColumn())]);
+    sh.getRange(1, 1, sh.getMaxRows(), DRAFT_HEADERS.length).setNumberFormat('@');
   }
   return sh;
 }
@@ -2035,7 +2039,8 @@ function draftRows_(sh) {
   return sh.getRange(2, 1, n - 1, DRAFT_HEADERS.length).getValues().map(function (r, k) {
     r = r.map(tx);
     return { _row: k + 2, id: String(r[0]), kind: String(r[1]), cat: String(r[2]), date: String(r[3]).slice(0, 10), party: String(r[4]), title: String(r[5]), amount: String(r[6]),
-      summary: String(r[7]), attach: String(r[8]), ref: String(r[9]), note: String(r[10]), due: String(r[11]).slice(0, 10), created: String(r[12]), state: String(r[13]), docNo: String(r[14]), by: String(r[15]) };
+      summary: String(r[7]), attach: String(r[8]), ref: String(r[9]), note: String(r[10]), due: String(r[11]).slice(0, 10), created: String(r[12]), state: String(r[13]), docNo: String(r[14]), by: String(r[15]),
+      fileIds: String(r[16] || '').split(/[,\s]+/).filter(function (x) { return /^[\w-]{10,}$/.test(x); }) };
   }).filter(function (d) { return d.id; });
 }
 function draftGuard_(req) {
@@ -2043,7 +2048,7 @@ function draftGuard_(req) {
   if (g.s.role !== MANAGER_ROLE && g.s.role !== '공무') return { err: fail_('FORBIDDEN', '공무·현장소장만 자동 초안을 다룰 수 있습니다.') };
   return g;
 }
-function draftPublic_(d) { return { id: d.id, kind: d.kind, cat: d.cat, date: d.date, party: d.party, title: d.title, amount: d.amount, summary: d.summary, attach: d.attach, created: d.created }; }
+function draftPublic_(d) { return { id: d.id, kind: d.kind, cat: d.cat, date: d.date, party: d.party, title: d.title, amount: d.amount, summary: d.summary, attach: d.attach, due: d.due, created: d.created, files: (d.fileIds || []).length }; }
 
 function listDrafts_(req) {
   const g = draftGuard_(req); if (g.err) return g.err;
@@ -2069,9 +2074,44 @@ function importDraft_(req) {
   let r;
   try { r = saveDoc_(body); } catch (e) { r = fail_('SERVER', '문서를 만들지 못했습니다.'); }
   if (!r || !r.ok) { sh.getRange(d._row, 14).setValue('대기'); return r; }
+  if (d.fileIds && d.fileIds.length) { // 자동처리가 받아 둔 원본 파일을 문서 폴더로 복사해 붙임으로 단다
+    const w = draftAttachFiles_(r.item.id, d.fileIds, g.s.name);
+    if (w.length) r.warn = [].concat(r.warn || [], w);
+    r.item = docPublic_(docFind_(ensureDocSheet_(getDb_()), r.item.id));
+  }
   sh.getRange(d._row, 14, 1, 3).setValues([['가져옴', r.item.docNo, g.s.name]]);
   audit_(g.s.id, '초안가져오기', d.id + ' → ' + r.item.docNo);
   return r;
+}
+
+/** 초안의 첨부파일ID(드라이브 파일)를 문서 폴더로 복사해 붙임 파일 목록에 더한다. 경고 문구 배열을 돌려준다. */
+function draftAttachFiles_(docId, fileIds, by) {
+  const warn = [];
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sh = ensureDocSheet_(getDb_());
+    const o = docFind_(sh, docId);
+    if (!o) return ['문서를 찾지 못해 첨부를 건너뛰었습니다.'];
+    if (!o.folderId) return ['문서 폴더가 없어 첨부를 건너뛰었습니다.'];
+    const files = docFilesOf_(o);
+    let folder; try { folder = DriveApp.getFolderById(o.folderId); } catch (e) { return ['문서 폴더를 열지 못해 첨부를 건너뛰었습니다.']; }
+    fileIds.forEach(function (fid) {
+      if (files.length >= MAX_DOC_FILES) { warn.push('붙임 파일이 ' + MAX_DOC_FILES + '개를 넘어 일부를 건너뛰었습니다.'); return; }
+      let src, bytes, name;
+      try { src = DriveApp.getFileById(fid); name = src.getName(); bytes = src.getBlob().getBytes(); } catch (e) { warn.push('원본 파일(' + fid.slice(0, 8) + '…)을 읽지 못했습니다.'); return; }
+      if (!bytes.length || bytes.length > MAX_DOC_FILE_BYTES) { warn.push('「' + name + '」은(는) 비었거나 너무 커서 건너뛰었습니다.'); return; }
+      const sha = sha256Hex_(bytes);
+      for (let k = 0; k < files.length; k++) if (files[k].sha === sha) return;
+      const n = files.reduce(function (m, f) { return Math.max(m, Number(f.n) || 0); }, 0) + 1;
+      let nf;
+      try { nf = folder.createFile(Utilities.newBlob(bytes, 'application/octet-stream', '첨부' + pad_(n, 2) + '_' + name)); } catch (e) { warn.push('「' + name + '」을(를) 문서 폴더에 저장하지 못했습니다.'); return; }
+      files.push({ n: n, fid: nf.getId(), name: name, size: bytes.length, sha: sha, by: by, at: nowStr_() });
+    });
+    o.files = JSON.stringify(files);
+    docWrite_(sh, o, o._row);
+    return warn;
+  } finally { lock.releaseLock(); }
 }
 
 function discardDraft_(req) {
