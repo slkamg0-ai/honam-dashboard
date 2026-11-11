@@ -310,6 +310,50 @@
   }
   function fromB64(b64) { var bin = atob(b64), a = new Uint8Array(bin.length); for (var k = 0; k < bin.length; k++) a[k] = bin.charCodeAt(k); return a; }
 
+
+  // ── 첨부 미리보기 (PDF·이미지) ──
+  var PREVIEW_MIME = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png' };
+  function previewable(name) { return !!PREVIEW_MIME[extOf(name)]; }
+  var PV = null; // { url }
+  function closePreview() { var m = $('pvModal'); if (m) m.remove(); if (PV && PV.url) { try { URL.revokeObjectURL(PV.url); } catch (e) {} } PV = null; }
+  function openPreview(name, blob) {
+    closePreview();
+    var ext = extOf(name), url = URL.createObjectURL(blob); PV = { url: url };
+    if (ext === 'pdf' && /Android|iPhone|iPad/i.test(navigator.userAgent)) { window.open(url, '_blank'); return; } // 모바일 브라우저는 iframe PDF를 못 그리므로 새 탭으로
+    var m = el('div'); m.id = 'pvModal'; m.className = 'pv-modal';
+    var head = el('div', 'pv-head'); head.appendChild(el('span', 'pv-title', name));
+    var dl = el('button', 'sm', '내려받기'); dl.type = 'button'; dl.onclick = function () { var a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); };
+    var x = el('button', 'sm', '닫기'); x.type = 'button'; x.onclick = closePreview;
+    head.appendChild(dl); head.appendChild(x); m.appendChild(head);
+    var body = el('div', 'pv-body');
+    if (ext === 'pdf') { var fr = document.createElement('iframe'); fr.src = url + '#toolbar=1&view=FitH'; fr.title = name; body.appendChild(fr); }
+    else { var im = document.createElement('img'); im.src = url; im.alt = name; body.appendChild(im); }
+    m.appendChild(body);
+    m.onclick = function (ev) { if (ev.target === m) closePreview(); };
+    document.body.appendChild(m);
+  }
+  document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape' && PV) closePreview(); });
+  /** 이미지 파일의 작은 썸네일(양식·상세 목록용). PDF는 아이콘. */
+  function thumbOf(name, blobOrNull) {
+    var ext = extOf(name), t = el('span', 'th');
+    if (blobOrNull && (ext === 'jpg' || ext === 'jpeg' || ext === 'png')) { var im = document.createElement('img'); im.src = URL.createObjectURL(blobOrNull); im.onload = function () { URL.revokeObjectURL(im.src); }; t.appendChild(im); }
+    else t.textContent = ext === 'pdf' ? 'PDF' : (ext === 'jpg' || ext === 'jpeg' || ext === 'png') ? 'IMG' : ext.toUpperCase().slice(0, 4);
+    return t;
+  }
+  /** 저장된 첨부를 받아 확인값을 검사한 뒤 미리보기로 연다. */
+  function previewSaved(docId, f) {
+    if (busy) return; busy = true;
+    E.api('getDocFile', { id: docId, n: f.n }, 120000).then(function (r) {
+      busy = false;
+      if (E.authLost(r)) return;
+      if (!r || !r.ok) { window.alert((r && r.message) || '파일을 받지 못했습니다.'); return; }
+      var bytes = fromB64(r.data);
+      sha256Of(bytes.buffer).then(function (h) {
+        if (h !== f.sha) { window.alert('⚠ 「' + f.name + '」의 SHA-256이 기록된 값과 다릅니다. 파일이 바뀌었을 수 있어 열지 않았습니다.'); return; }
+        openPreview(f.name, new Blob([bytes], { type: PREVIEW_MIME[extOf(f.name)] || 'application/octet-stream' }));
+      });
+    });
+  }
   /** 양식에서 지금 붙어 있을(저장이 끝나면) 파일 목록 — 갑지 미리보기용 */
   function formFiles() {
     if (!F) return [];
@@ -322,14 +366,18 @@
     var box = $('dFileList'); box.textContent = '';
     (F.have || []).forEach(function (f) {
       var gone = F.drop.indexOf(f.n) >= 0;
-      var r = el('div', 'fr' + (gone ? ' gone' : '')); var nm = el('span', 'nm', f.name); nm.appendChild(el('span', 'sub', fmtSize(f.size) + ' · SHA-256 ' + String(f.sha).slice(0, 16) + '…' + (gone ? ' · 저장하면 삭제됩니다' : '')));
-      r.appendChild(nm); var b = el('button', '', gone ? '되돌리기' : '삭제'); b.type = 'button';
+      var r = el('div', 'fr' + (gone ? ' gone' : '')); r.appendChild(thumbOf(f.name, null)); var nm = el('span', 'nm', f.name); nm.appendChild(el('span', 'sub', fmtSize(f.size) + ' · SHA-256 ' + String(f.sha).slice(0, 16) + '…' + (gone ? ' · 저장하면 삭제됩니다' : '')));
+      r.appendChild(nm);
+      if (previewable(f.name) && F.id) { var pv = el('button', '', '미리보기'); pv.type = 'button'; pv.onclick = function () { previewSaved(F.id, f); }; r.appendChild(pv); }
+      var b = el('button', '', gone ? '되돌리기' : '삭제'); b.type = 'button';
       b.onclick = function () { var at = F.drop.indexOf(f.n); if (at >= 0) F.drop.splice(at, 1); else F.drop.push(f.n); drawFiles(); drawPrev(); };
       r.appendChild(b); box.appendChild(r);
     });
     (F.pend || []).forEach(function (p) {
-      var r = el('div', 'fr'); var nm = el('span', 'nm', p.name); nm.appendChild(el('span', 'sub', fmtSize(p.size) + ' · ' + (p.sha ? 'SHA-256 ' + p.sha.slice(0, 16) + '…' : '확인값 계산 중…') + ' · 저장하면 올라갑니다'));
-      r.appendChild(nm); var b = el('button', '', '빼기'); b.type = 'button';
+      var r = el('div', 'fr'); r.appendChild(thumbOf(p.name, p.file)); var nm = el('span', 'nm', p.name); nm.appendChild(el('span', 'sub', fmtSize(p.size) + ' · ' + (p.sha ? 'SHA-256 ' + p.sha.slice(0, 16) + '…' : '확인값 계산 중…') + ' · 저장하면 올라갑니다'));
+      r.appendChild(nm);
+      if (previewable(p.name)) { var pv = el('button', '', '미리보기'); pv.type = 'button'; pv.onclick = function () { openPreview(p.name, p.file); }; r.appendChild(pv); }
+      var b = el('button', '', '빼기'); b.type = 'button';
       b.onclick = function () { var at = F.pend.indexOf(p); if (at >= 0) F.pend.splice(at, 1); drawFiles(); drawPrev(); };
       r.appendChild(b); box.appendChild(r);
     });
@@ -459,8 +507,10 @@
     }
     var area = el('div'); p.appendChild(area);
     if (fbox) i.files.forEach(function (f) {
-      var r = el('div', 'fr'); var nm = el('span', 'nm', f.name); nm.appendChild(el('span', 'sub', fmtSize(f.size) + ' · SHA-256 ' + String(f.sha).slice(0, 16) + '… · ' + f.by));
-      r.appendChild(nm); var b = el('button', '', '내려받기'); b.type = 'button'; b.onclick = function () { downloadFile(i, f); }; r.appendChild(b); fbox.appendChild(r);
+      var r = el('div', 'fr'); r.appendChild(thumbOf(f.name, null)); var nm = el('span', 'nm', f.name); nm.appendChild(el('span', 'sub', fmtSize(f.size) + ' · SHA-256 ' + String(f.sha).slice(0, 16) + '… · ' + f.by));
+      r.appendChild(nm);
+      if (previewable(f.name)) { var pv = el('button', '', '미리보기'); pv.type = 'button'; pv.onclick = function () { previewSaved(i.id, f); }; r.appendChild(pv); }
+      var b = el('button', '', '내려받기'); b.type = 'button'; b.onclick = function () { downloadFile(i, f); }; r.appendChild(b); fbox.appendChild(r);
     });
     var btns = el('div', 'row-btns'); area.appendChild(btns);
     var msg = el('div', 'msg'); msg.id = 'dDMsg'; p.appendChild(msg);
