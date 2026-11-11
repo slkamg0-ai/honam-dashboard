@@ -660,6 +660,14 @@ function siteManagerName_() {
 
 function expClaimMonth_(o) { return o.claimMonth || String(o.date || '').slice(0, 7); }
 
+/** 현장소장 계정의 로그인ID 목록(사용 중지 포함). 현장소장이 쓴 경비는 현장소장만 검토한다. */
+function managerIds_() {
+  const out = {};
+  readUsers_(ensureUsersSheet_(getDb_())).forEach(function (r) { if (r[COL.role] === MANAGER_ROLE) out[String(r[COL.id])] = true; });
+  return out;
+}
+function expByManager_(o, ids) { return !!(ids || managerIds_())[String(o.authorId)]; }
+
 // ── 월 마감 ──
 const CLOSE_HEADERS = ['연월', '상태', '처리자', '처리일시', '건수', '합계', '사유'];
 
@@ -946,8 +954,8 @@ function submitExpense_(req) {
     } else { o.late = ''; o.claimMonth = ''; }
     if (!o.docNo) o.docNo = nextDocNo_('경비');
     o.reason = ''; o.reviewer = ''; o.reviewedAt = ''; o.approver = ''; o.approvedAt = '';
-    // 공무·현장소장이 쓴 경비는 본인이 검토할 수 없으므로 검토 단계를 건너뛴다(현장소장은 승인대기에서 다시 보고 승인)
-    o.status = (me.role === '공무' || me.role === MANAGER_ROLE) ? ST.APPROVAL : ST.REVIEW;
+    // 공무가 쓴 경비는 본인이 검토할 수 없으므로 검토 단계를 건너뛴다. 현장소장이 쓴 경비는 현장소장이 직접 검토·승인한다.
+    o.status = me.role === '공무' ? ST.APPROVAL : ST.REVIEW;
     expWrite_(sh, o, o._row);
     audit_(me.id, '경비제출', o.docNo + ' → ' + o.status);
     return { ok: true, item: expPublic_(o) };
@@ -970,7 +978,8 @@ function reviewExpense_(req) {
     const o = expFind_(sh, String(req.id || ''));
     if (!o) return fail_('NOT_FOUND', '없는 경비입니다.');
     if (o.status !== ST.REVIEW) return fail_('STATE', '검토 대기 중인 경비가 아닙니다.');
-    if (o.authorId === me.id) return fail_('SELF', '본인이 쓴 경비는 본인이 검토할 수 없습니다.');
+    if (o.authorId === me.id && me.role !== MANAGER_ROLE) return fail_('SELF', '본인이 쓴 경비는 본인이 검토할 수 없습니다.');
+    if (o.authorId !== me.id && me.role !== MANAGER_ROLE && expByManager_(o)) return fail_('FORBIDDEN', '현장소장이 쓴 경비는 현장소장이 직접 검토합니다.');
     if (ok && isClosed_(closedMonths_(), expClaimMonth_(o))) return fail_('CLOSED', expClaimMonth_(o) + '은(는) 마감된 달입니다. 마감 뒤에 처리할 수 없으니 반려해서 작성자가 누락분으로 다시 제출하게 하거나, 현장소장이 마감을 해제해 주세요.');
     if (ok) { o.status = ST.APPROVAL; o.reviewer = me.name; o.reviewedAt = nowStr_(); o.reason = ''; }
     else { o.status = ST.REJECT; o.reviewer = me.name; o.reviewedAt = nowStr_(); o.reason = reason; }
@@ -995,8 +1004,7 @@ function approveExpense_(req) {
     const sh = ensureExpSheet_(getDb_());
     const o = expFind_(sh, String(req.id || ''));
     if (!o) return fail_('NOT_FOUND', '없는 경비입니다.');
-    const ownStuck = o.status === ST.REVIEW && o.authorId === me.id; // v2.20 전에 소장이 제출해 검토대기에 멈춘 본인 경비
-    if (o.status !== ST.APPROVAL && !ownStuck) return fail_('STATE', '승인 대기 중인 경비가 아닙니다.');
+    if (o.status !== ST.APPROVAL) return fail_('STATE', '승인 대기 중인 경비가 아닙니다.');
     if (ok && isClosed_(closedMonths_(), expClaimMonth_(o))) return fail_('CLOSED', expClaimMonth_(o) + '은(는) 마감된 달입니다. 마감 뒤에 승인할 수 없으니 반려해서 작성자가 누락분으로 다시 제출하게 하거나, 마감을 해제해 주세요.');
     if (ok) { o.status = ST.DONE; o.approver = me.name; o.approvedAt = nowStr_(); o.reason = ''; }
     else { o.status = ST.REJECT; o.approver = me.name; o.approvedAt = nowStr_(); o.reason = reason; }
@@ -2541,7 +2549,11 @@ function dashboard_(req) {
   const add = function (key, label, n, unit, tone, go, tag) { if (n > 0) todo.push({ key: key, label: label, n: n, unit: unit, tone: tone, go: go, tag: tag || '' }); };
   const notMine = function (o) { return o.authorId !== me.id; };
   const mine = function (o) { return o.authorId === me.id; };
-  add('expAct', '결재할 경비', count(exps, function (o) { return (notMine(o) && ((o.status === ST.REVIEW && isGm) || (o.status === ST.APPROVAL && isMgr))) || (isMgr && mine(o) && (o.status === ST.REVIEW || o.status === ST.APPROVAL)); }), '건', 'act', 'exp');
+  const mgrIds = managerIds_();
+  add('expAct', '결재할 경비', count(exps, function (o) {
+    if (isMgr && mine(o)) return o.status === ST.REVIEW || o.status === ST.APPROVAL; // 소장 본인 경비는 소장이 검토·승인
+    return notMine(o) && ((o.status === ST.REVIEW && isGm && (isMgr || !expByManager_(o, mgrIds))) || (o.status === ST.APPROVAL && isMgr));
+  }), '건', 'act', 'exp');
   add('opsAct', '확인할 작업일보', isGm ? count(ops, function (o) { return o.status === OST.WAIT && notMine(o); }) : 0, '건', 'act', 'ops');
   add('docAct', '결재할 문서', count(docs, function (o) { return (o.status === DST.REVIEW && isGm && notMine(o)) || (o.status === DST.APPROVAL && isMgr); }), '건', 'act', 'doc');
   add('docLate', '회신 지연 문서', count(docs, function (o) { return o.kind !== '품의' && o.replied !== 'Y' && o.due && (o.status === DST.RECV || o.status === DST.DONE) && String(o.due) < today; }), '건', 'late', 'doc');
@@ -2801,11 +2813,11 @@ function approvalQueue_(req) {
   const me = g.s, isMgr = me.role === MANAGER_ROLE, isGm = isMgr || me.role === '공무';
   const ss = getDb_(), items = [];
   if (isGm) {
+    const mgrIds = managerIds_();
     expRows_(ensureExpSheet_(ss)).forEach(function (o) {
       let step = '';
-      if (o.status === ST.REVIEW && o.authorId !== me.id) step = 'review';
+      if (o.status === ST.REVIEW && (isMgr || (o.authorId !== me.id && !expByManager_(o, mgrIds)))) step = 'review'; // 소장 경비는 소장이 직접 검토
       else if (o.status === ST.APPROVAL && isMgr) step = 'approve';
-      else if (o.status === ST.REVIEW && isMgr && o.authorId === me.id) step = 'approve'; // v2.20 전에 멈춘 본인 경비
       if (step) items.push({ kind: 'exp', id: o.id, step: step, no: o.docNo, title: o.vendor || o.memo || '(거래처 없음)', date: o.date, author: o.author, amount: Number(o.total) || 0, sub: [o.category, o.site === '' ? '' : (o.site === '0' ? '공통' : '#' + o.site)].filter(String).join(' · ') });
     });
     docRows_(ensureDocSheet_(ss)).forEach(function (o) {

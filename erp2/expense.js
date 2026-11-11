@@ -39,8 +39,8 @@
   function myTodo(list) {
     var me = E.me(); if (!me) return 0;
     return list.filter(function (i) {
-      if (i.authorId === me.loginId) return me.role === '현장소장' && (i.status === '검토대기' || i.status === '승인대기'); // 소장 본인 경비는 소장이 승인
-      if (i.status === '검토대기') return me.role === '공무' || me.role === '현장소장';
+      if (i.authorId === me.loginId) return me.role === '현장소장' && (i.status === '검토대기' || i.status === '승인대기'); // 소장 본인 경비는 소장이 검토·승인
+      if (i.status === '검토대기') return me.role === '현장소장' || (me.role === '공무' && !(M && M.manager && i.author === M.manager));
       if (i.status === '승인대기') return me.role === '현장소장';
       return false;
     }).length;
@@ -193,15 +193,17 @@
       btn(i.status === '반려' ? '다시 제출' : '제출', 'pri', function () { act('submitExpense', { id: i.id }, '제출했습니다.'); }).style.marginTop = '0';
       btn('삭제', 'warn', function () { if (confirm('이 경비를 삭제할까요?')) act('deleteExpense', { id: i.id }, ''); });
     }
-    if (i.status === '검토대기' && !mine && (me.role === '공무' || me.role === '현장소장')) {
+    var byMgr = !!(M && M.manager && i.author === M.manager); // 현장소장이 쓴 경비는 현장소장이 직접 검토
+    if (i.status === '검토대기' && (me.role === '현장소장' || (me.role === '공무' && !mine && !byMgr))) {
       btn('검토 완료 (승인 요청)', 'ok', function () { act('reviewExpense', { id: i.id, decision: 'ok' }, '검토했습니다. 현장소장 승인 대기로 넘어갔습니다.'); });
       btn('반려', 'warn', function () { reasonBox('반려 확정', 'reviewExpense'); });
     }
-    if ((i.status === '승인대기' || (i.status === '검토대기' && mine)) && me.role === '현장소장') { // 소장 본인 경비는 검토 없이 소장이 승인
+    if (i.status === '승인대기' && me.role === '현장소장') {
       btn('승인', 'ok', function () { act('approveExpense', { id: i.id, decision: 'ok' }, '승인했습니다.'); });
       btn('반려', 'warn', function () { reasonBox('반려 확정', 'approveExpense'); });
     }
     if (i.status === '검토대기' && mine && me.role !== '현장소장') p.appendChild(el('div', 'desc', '공무(또는 현장소장)의 검토를 기다리는 중입니다. 제출한 경비는 고칠 수 없습니다.'));
+    if (i.status === '검토대기' && byMgr && me.role === '공무') p.appendChild(el('div', 'desc', '현장소장이 쓴 경비라 현장소장이 직접 검토합니다.'));
     if (i.status === '승인대기' && me.role !== '현장소장') p.appendChild(el('div', 'desc', '현장소장 승인을 기다리는 중입니다.'));
   }
 
@@ -324,7 +326,7 @@
       submitAsk(saved.id).then(function (s) {
         done(); if (E.authLost(s)) return;
         if (!s.ok) { showDetail(saved); setMsg('dMsg', '저장은 했지만 제출하지 못했습니다: ' + (s.message || ''), false); return; }
-        showDetail(s.item); setMsg('dMsg', '제출했습니다. ' + (s.item.status === '승인대기' ? (E.me().role === '현장소장' ? '검토 없이 승인대기로 넘어갔습니다. 결재함에서 승인해 주세요.' : '현장소장 승인을 기다립니다.') : '공무 검토를 기다립니다.'), true);
+        showDetail(s.item); setMsg('dMsg', '제출했습니다. ' + (s.item.status === '승인대기' ? '현장소장 승인을 기다립니다.' : (E.me().role === '현장소장' ? '검토대기입니다. 결재함에서 직접 검토·승인해 주세요.' : '공무 검토를 기다립니다.')), true);
       });
     });
   }
