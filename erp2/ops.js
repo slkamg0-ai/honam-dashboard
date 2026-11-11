@@ -6,6 +6,7 @@
   var $ = E.$, el = E.el;
   var M = null;            // 서버 마스터(개소·계획·휴무일 …)
   var month = '';          // 보고 있는 달 (YYYY-MM)
+  var pendingId = '';     // 결재함에서 「열기」로 들어온 건(목록을 받으면 바로 상세를 연다)
   var filter = 'all';      // all | mine | queue
   var items = [];
   var closedList = [];
@@ -75,6 +76,8 @@
     withMaster(function () { if (!month) month = M.today.slice(0, 7); $('oMonth').value = month; closedList = M.closed || []; buildFilters(); load(); }, 'oMsg');
   }
   $('tileOps').onclick = openList;
+  E.openItem = E.openItem || {};
+  E.openItem.ops = function (id) { filter = 'queue'; pendingId = String(id || ''); openList(); };
   $('oBack').onclick = function () { E.showView('vHome'); refreshBadge(); };
 
   function buildFilters() {
@@ -102,6 +105,7 @@
       if (E.authLost(r)) return;
       if (!r.ok) { items = []; render(); setMsg('oMsg', r.message || '목록을 불러오지 못했습니다.'); return; }
       items = r.items; closedList = r.closed || []; latest = r.latest || {}; setMsg('oMsg', ''); render();
+      if (pendingId) { var hit = items.filter(function (x) { return x.id === pendingId; })[0]; pendingId = ''; if (hit) showDetail(hit); }
     });
   }
 
@@ -250,7 +254,8 @@
       $('oDate').max = M.today; $('oDate').value = it ? it.date : M.today;
       var base = it || (items.filter(function (x) { return x.authorId === E.me().loginId; })[0]) || null; // 새 일보는 내가 마지막으로 쓴 인원을 기본값으로
       $('oWeather').value = it ? it.weather : M.opsWeather[0];
-      $('oSite').value = String(it ? it.site : siteByDate(M.today));
+      var ws = !it && E.workSite ? E.workSite() : 0; // 홈에서 고른 작업 개소가 있으면 그것을 먼저
+      $('oSite').value = String(it ? it.site : (ws && $('oSite').querySelector('option[value="' + ws + '"]') ? ws : siteByDate(M.today)));
       $('oStaff').value = base ? String(base.staff) : '0'; $('oWorker').value = base ? String(base.worker) : '0'; $('oSafety').value = base ? String(base.safety) : '0'; sumPeople();
       $('oEquip').value = it ? it.equip : ''; $('oMemo').value = it ? it.memo : ''; $('oReason').value = it ? it.offReason : '';
       refreshPlan(!it, !it);

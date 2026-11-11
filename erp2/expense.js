@@ -6,6 +6,7 @@
   var $ = E.$, el = E.el;
   var M = null;            // 서버 마스터(비목·결제수단·개소 …)
   var month = '';          // 보고 있는 달 (YYYY-MM)
+  var pendingId = '';     // 결재함에서 「열기」로 들어온 건(목록을 받으면 바로 상세를 연다)
   var filter = 'all';      // all | mine | queue
   var items = [];
   var closedList = [];     // 서버가 알려 주는 마감된 달
@@ -38,7 +39,7 @@
   function myTodo(list) {
     var me = E.me(); if (!me) return 0;
     return list.filter(function (i) {
-      if (i.authorId === me.loginId) return false;
+      if (i.authorId === me.loginId) return me.role === '현장소장' && (i.status === '검토대기' || i.status === '승인대기'); // 소장 본인 경비는 소장이 승인
       if (i.status === '검토대기') return me.role === '공무' || me.role === '현장소장';
       if (i.status === '승인대기') return me.role === '현장소장';
       return false;
@@ -64,6 +65,8 @@
     withMaster(function () { if (!month) month = M.today.slice(0, 7); $('xMonth').value = month; buildFilters(); load(); }, 'xMsg');
   }
   $('tileExp').onclick = openList;
+  E.openItem = E.openItem || {};
+  E.openItem.exp = function (id) { filter = 'queue'; pendingId = String(id || ''); openList(); };
   $('xBack').onclick = function () { E.showView('vHome'); refreshBadge(); };
 
   function buildFilters() {
@@ -88,6 +91,7 @@
       if (E.authLost(r)) return;
       if (!r.ok) { items = []; render(); setMsg('xMsg', r.message || '목록을 불러오지 못했습니다.'); return; }
       items = r.items; closedList = r.closed || []; setMsg('xMsg', ''); render();
+      if (pendingId) { var hit = items.filter(function (x) { return x.id === pendingId; })[0]; pendingId = ''; if (hit) showDetail(hit); }
     });
   }
 
@@ -193,11 +197,11 @@
       btn('검토 완료 (승인 요청)', 'ok', function () { act('reviewExpense', { id: i.id, decision: 'ok' }, '검토했습니다. 현장소장 승인 대기로 넘어갔습니다.'); });
       btn('반려', 'warn', function () { reasonBox('반려 확정', 'reviewExpense'); });
     }
-    if (i.status === '승인대기' && me.role === '현장소장') {
+    if ((i.status === '승인대기' || (i.status === '검토대기' && mine)) && me.role === '현장소장') { // 소장 본인 경비는 검토 없이 소장이 승인
       btn('승인', 'ok', function () { act('approveExpense', { id: i.id, decision: 'ok' }, '승인했습니다.'); });
       btn('반려', 'warn', function () { reasonBox('반려 확정', 'approveExpense'); });
     }
-    if (i.status === '검토대기' && mine) p.appendChild(el('div', 'desc', '공무(또는 현장소장)의 검토를 기다리는 중입니다. 제출한 경비는 고칠 수 없습니다.'));
+    if (i.status === '검토대기' && mine && me.role !== '현장소장') p.appendChild(el('div', 'desc', '공무(또는 현장소장)의 검토를 기다리는 중입니다. 제출한 경비는 고칠 수 없습니다.'));
     if (i.status === '승인대기' && me.role !== '현장소장') p.appendChild(el('div', 'desc', '현장소장 승인을 기다리는 중입니다.'));
   }
 
@@ -225,6 +229,7 @@
       $('fTitle').textContent = it ? (it.status === '반려' ? '경비 고치기 (반려됨)' : '경비 고치기') : '경비 등록';
       $('fDate').max = M.today; $('fDate').value = it ? it.date : M.today;
       $('fCat').value = it ? it.category : M.categories[0]; $('fPay').value = it ? it.pay : M.payMethods[0]; $('fSite').value = String(it ? it.site : 0);
+      if (!it && E.workSite && E.workSite() && $('fSite').querySelector('option[value="' + E.workSite() + '"]')) $('fSite').value = String(E.workSite()); // 홈에서 고른 작업 개소
       $('fBudget').value = it ? it.budget : (M.catBudget[$('fCat').value] || M.defaultBudget); if (it) $('fBudget').dataset.manual = '1';
       $('fVendor').value = it ? it.vendor : ''; $('fMemo').value = it ? it.memo : ''; $('fTotal').value = it ? String(it.total) : '';
       var mode = 'auto'; if (it) { if (it.vat === 0) mode = 'none'; else if (it.vat !== it.total - Math.round(it.total / 1.1)) mode = 'manual'; }
@@ -319,7 +324,7 @@
       submitAsk(saved.id).then(function (s) {
         done(); if (E.authLost(s)) return;
         if (!s.ok) { showDetail(saved); setMsg('dMsg', '저장은 했지만 제출하지 못했습니다: ' + (s.message || ''), false); return; }
-        showDetail(s.item); setMsg('dMsg', '제출했습니다. ' + (s.item.status === '승인대기' ? '현장소장 승인을 기다립니다.' : '공무 검토를 기다립니다.'), true);
+        showDetail(s.item); setMsg('dMsg', '제출했습니다. ' + (s.item.status === '승인대기' ? (E.me().role === '현장소장' ? '검토 없이 승인대기로 넘어갔습니다. 결재함에서 승인해 주세요.' : '현장소장 승인을 기다립니다.') : '공무 검토를 기다립니다.'), true);
       });
     });
   }

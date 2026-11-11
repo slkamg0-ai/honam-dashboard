@@ -234,6 +234,31 @@
   .sheet .sh-x { width: 100%; margin-top: 10px; }
   .apv-g { margin-top: 14px; } .apv-g:first-child { margin-top: 4px; }
   .apv-g h4 { margin: 0 0 4px; font-size: 13px; color: #475569; }
+  .apv-i { border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; margin-top: 8px; background: #fff; }
+  .apv-i .t { font-weight: 800; font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+  .apv-i .t .amt { margin-left: auto; white-space: nowrap; }
+  .apv-i .s { font-size: 12.5px; color: #475569; margin-top: 2px; line-height: 1.5; }
+  .apv-i .k { font-size: 11px; font-weight: 800; padding: 2px 7px; border-radius: 8px; flex: none; }
+  .apv-i .k.exp { background: #dbeafe; color: #1e40af; } .apv-i .k.doc { background: #fef3c7; color: #92400e; } .apv-i .k.ops { background: #dcfce7; color: #166534; }
+  .apv-i .b { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .apv-i .b button { min-height: 44px; padding: 0 14px; font-size: 14px; }
+  .apv-i .b .go2 { background: #1d4ed8; color: #fff; }
+  .apv-i .b .go2.arm { background: #b45309; }
+  .apv-i .msg:empty { display: none; }
+  .au-i { padding: 9px 0; border-top: 1px solid #f1f5f9; font-size: 13.5px; line-height: 1.55; }
+  .au-i:first-child { border-top: 0; }
+  .au-i .h { display: flex; gap: 8px; align-items: baseline; }
+  .au-i .h b { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .au-i .h span { color: #475569; font-size: 12px; white-space: nowrap; }
+  .au-i .w { color: #334155; }
+  .au-i .todo { margin-top: 4px; background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 6px 8px; color: #78350f; }
+  .au-i .todo.done { background: #f8fafc; border-color: #e2e8f0; color: #475569; }
+  .au-i .todo button { margin-top: 6px; min-height: 40px; font-size: 13px; }
+  .site-pick { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .site-pick label { font-weight: 800; font-size: 14px; }
+  .site-pick select { flex: 1 1 220px; min-width: 0; min-height: 44px; font-size: 15px; font-weight: 700; }
+  .site-now { font-size: 13px; color: #475569; margin-top: 6px; line-height: 1.5; }
+  .site-now b { color: #0f172a; }
   .apv-note { font-size: 12.5px; color: #475569; line-height: 1.6; margin: 12px 0 0; }
   @media (min-width: 1024px) {
     .bar .in { max-width: none; padding: 8px 20px; }
@@ -251,6 +276,7 @@
     #vHome:not(.hide) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
     #vHome .panel { margin: 0; }
     #homeTiles { display: none; }
+    #homeSite { grid-column: 1 / -1; }
   }
   @media (max-width: 520px) { .urow { grid-template-columns: 1fr; } .acts { justify-content: flex-start; } .grid2 { grid-template-columns: 1fr; } }
 </style>
@@ -327,12 +353,17 @@
   </nav>
   <div class="wrap">
     <div id="vHome">
+      <div class="panel" id="homeSite">
+        <div class="site-pick"><label for="workSite">작업 개소</label><select id="workSite"><option value="0">전체 (개소 정하지 않음)</option></select></div>
+        <div class="site-now" id="workSiteNow">새 경비·작업일보의 개소가 여기서 고른 곳으로 먼저 채워집니다.</div>
+      </div>
       <div class="panel" id="dbToday">
         <h3>오늘 처리할 일 <span class="dbdate" id="dbDate"></span> <button type="button" class="sm" id="dbRefresh" style="float:right">새로고침</button></h3>
         <div class="msg" id="dbMsg"></div>
         <div id="dbTodo"></div>
       </div>
       <div class="panel hide" id="dbMonth"><h3><span id="dbMonthTitle">이번 달</span> <span class="dbpill" id="dbMonthState"></span></h3><div id="dbMonthBody"></div></div>
+      <div class="panel hide" id="dbAuto"><h3>자동처리 기록 <span class="dbpill" id="dbAutoN"></span></h3><div id="dbAutoBody"></div></div>
       <div class="panel hide" id="dbBudget"><h3>실행예산 집행</h3><div id="dbBudgetBody"></div></div>
       <div class="panel hide" id="dbSites"><h3>개소별 진행률</h3><div id="dbSitesBody"></div></div>
       <div class="panel" id="homeTiles">
@@ -352,7 +383,7 @@
         <h3>결재함 <button type="button" class="sm" id="apvRefresh" style="float:right">새로고침</button></h3>
         <div class="msg" id="apvMsg"></div>
         <div id="apvBody"></div>
-        <p class="apv-note">경비·문서·작업일보에서 내가 결재하거나 확인할 것, 반려되어 고칠 것, 기한이 지난 것을 한곳에 모았습니다. 줄을 누르면 그 화면으로 갑니다.</p>
+        <p class="apv-note">경비·문서·작업일보 중 내가 검토·승인·확인할 것을 한 건씩 보여 줍니다. 승인은 실수하지 않게 두 번 눌러야 처리되고, 반려는 「열기 · 반려」에서 사유를 적어 처리합니다.</p>
         <button type="button" class="hide" id="apvBack">홈으로</button>
       </div>
     </div>

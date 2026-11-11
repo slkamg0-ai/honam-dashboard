@@ -77,7 +77,7 @@ function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.19' }; }
+function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.20' }; }
 
 function route_(req) {
   const t0 = Date.now();
@@ -138,6 +138,8 @@ function route_(req) {
       case 'doneTask': out = doneTask_(req); break;
       case 'reopenTask': out = reopenTask_(req); break;
       case 'cancelTask': out = cancelTask_(req); break;
+      case 'approvalQueue': out = approvalQueue_(req); break;
+      case 'doneAuto': out = doneAuto_(req); break;
       default: out = fail_('UNKNOWN_ACTION', '알 수 없는 요청입니다.');
     }
   } catch (err) {
@@ -944,7 +946,8 @@ function submitExpense_(req) {
     } else { o.late = ''; o.claimMonth = ''; }
     if (!o.docNo) o.docNo = nextDocNo_('경비');
     o.reason = ''; o.reviewer = ''; o.reviewedAt = ''; o.approver = ''; o.approvedAt = '';
-    o.status = me.role === '공무' ? ST.APPROVAL : ST.REVIEW; // 공무가 쓴 경비는 본인이 검토할 수 없으므로 검토 단계를 건너뛴다
+    // 공무·현장소장이 쓴 경비는 본인이 검토할 수 없으므로 검토 단계를 건너뛴다(현장소장은 승인대기에서 다시 보고 승인)
+    o.status = (me.role === '공무' || me.role === MANAGER_ROLE) ? ST.APPROVAL : ST.REVIEW;
     expWrite_(sh, o, o._row);
     audit_(me.id, '경비제출', o.docNo + ' → ' + o.status);
     return { ok: true, item: expPublic_(o) };
@@ -992,7 +995,8 @@ function approveExpense_(req) {
     const sh = ensureExpSheet_(getDb_());
     const o = expFind_(sh, String(req.id || ''));
     if (!o) return fail_('NOT_FOUND', '없는 경비입니다.');
-    if (o.status !== ST.APPROVAL) return fail_('STATE', '승인 대기 중인 경비가 아닙니다.');
+    const ownStuck = o.status === ST.REVIEW && o.authorId === me.id; // v2.20 전에 소장이 제출해 검토대기에 멈춘 본인 경비
+    if (o.status !== ST.APPROVAL && !ownStuck) return fail_('STATE', '승인 대기 중인 경비가 아닙니다.');
     if (ok && isClosed_(closedMonths_(), expClaimMonth_(o))) return fail_('CLOSED', expClaimMonth_(o) + '은(는) 마감된 달입니다. 마감 뒤에 승인할 수 없으니 반려해서 작성자가 누락분으로 다시 제출하게 하거나, 마감을 해제해 주세요.');
     if (ok) { o.status = ST.DONE; o.approver = me.name; o.approvedAt = nowStr_(); o.reason = ''; }
     else { o.status = ST.REJECT; o.approver = me.name; o.approvedAt = nowStr_(); o.reason = reason; }
@@ -2537,7 +2541,7 @@ function dashboard_(req) {
   const add = function (key, label, n, unit, tone, go, tag) { if (n > 0) todo.push({ key: key, label: label, n: n, unit: unit, tone: tone, go: go, tag: tag || '' }); };
   const notMine = function (o) { return o.authorId !== me.id; };
   const mine = function (o) { return o.authorId === me.id; };
-  add('expAct', '결재할 경비', count(exps, function (o) { return notMine(o) && ((o.status === ST.REVIEW && isGm) || (o.status === ST.APPROVAL && isMgr)); }), '건', 'act', 'exp');
+  add('expAct', '결재할 경비', count(exps, function (o) { return (notMine(o) && ((o.status === ST.REVIEW && isGm) || (o.status === ST.APPROVAL && isMgr))) || (isMgr && mine(o) && (o.status === ST.REVIEW || o.status === ST.APPROVAL)); }), '건', 'act', 'exp');
   add('opsAct', '확인할 작업일보', isGm ? count(ops, function (o) { return o.status === OST.WAIT && notMine(o); }) : 0, '건', 'act', 'ops');
   add('docAct', '결재할 문서', count(docs, function (o) { return (o.status === DST.REVIEW && isGm && notMine(o)) || (o.status === DST.APPROVAL && isMgr); }), '건', 'act', 'doc');
   add('docLate', '회신 지연 문서', count(docs, function (o) { return o.kind !== '품의' && o.replied !== 'Y' && o.due && (o.status === DST.RECV || o.status === DST.DONE) && String(o.due) < today; }), '건', 'late', 'doc');
@@ -2621,7 +2625,11 @@ function dashboard_(req) {
     budget = { groups: groups, total: groups.reduce(function (a, x) { return { budget: a.budget + x.budget, spent: a.spent + x.spent, pending: a.pending + x.pending }; }, { budget: 0, spent: 0, pending: 0 }) };
   }
   const period = { start: first, end: lastEnd, pct: dashPlanned_(today, first, lastEnd) };
-  return { ok: true, today: today, role: me.role, todo: todo, month: month, prev: prev, sites: sites, siteSummary: sum, budget: budget, period: period };
+  // ⑤ 루트 폴더 자동처리 기록(예약 작업이 「자동처리기록」 시트에 한 줄씩 남긴다)
+  const autoAll = autoRows_(ss), autoOpen = autoAll.filter(function (o) { return o.status === AUTO_OPEN; });
+  if (isGm) add('autoTodo', '자동처리 후 확인할 일', autoOpen.length, '건', 'warn', 'auto');
+  const auto = { open: autoOpen.length, items: autoAll.slice(-8).reverse().map(autoPublic_), canDone: isGm };
+  return { ok: true, today: today, role: me.role, todo: todo, month: month, prev: prev, sites: sites, siteSummary: sum, budget: budget, period: period, auto: auto };
 }
 
 
@@ -2784,4 +2792,77 @@ function cancelTask_(req) {
     o.status = TST.CANCEL; o.reason = reason;
     return null;
   });
+}
+
+// ───────────────────────────── v2.20: 결재함 · 자동처리 기록 ─────────────────────────────
+/** 결재함: 내가 지금 검토·승인·확인할 경비·문서·작업일보를 한 건씩 돌려준다(읽기 전용). */
+function approvalQueue_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s, isMgr = me.role === MANAGER_ROLE, isGm = isMgr || me.role === '공무';
+  const ss = getDb_(), items = [];
+  if (isGm) {
+    expRows_(ensureExpSheet_(ss)).forEach(function (o) {
+      let step = '';
+      if (o.status === ST.REVIEW && o.authorId !== me.id) step = 'review';
+      else if (o.status === ST.APPROVAL && isMgr) step = 'approve';
+      else if (o.status === ST.REVIEW && isMgr && o.authorId === me.id) step = 'approve'; // v2.20 전에 멈춘 본인 경비
+      if (step) items.push({ kind: 'exp', id: o.id, step: step, no: o.docNo, title: o.vendor || o.memo || '(거래처 없음)', date: o.date, author: o.author, amount: Number(o.total) || 0, sub: [o.category, o.site === '' ? '' : (o.site === '0' ? '공통' : '#' + o.site)].filter(String).join(' · ') });
+    });
+    docRows_(ensureDocSheet_(ss)).forEach(function (o) {
+      let step = '';
+      if (o.status === DST.REVIEW && o.authorId !== me.id) step = 'review';
+      else if (o.status === DST.APPROVAL && isMgr) step = 'approve';
+      if (step) items.push({ kind: 'doc', id: o.id, step: step, no: o.docNo, title: o.title, date: o.date, author: o.author, amount: o.amount || '', sub: [o.kind, o.cat, o.party].filter(String).join(' · ') });
+    });
+    opsRows_(ensureOpsSheet_(ss)).forEach(function (o) {
+      if (o.status === OST.WAIT && o.authorId !== me.id) {
+        const people = (Number(o.staff) || 0) + (Number(o.worker) || 0) + (Number(o.safety) || 0);
+        items.push({ kind: 'ops', id: o.id, step: 'confirm', no: o.docNo, title: String(o.date).slice(5).replace('-', '. ') + '. 작업일보', date: o.date, author: o.author, amount: '', sub: [Number(o.site) ? '#' + o.site : '공통', o.kind, '출역 ' + people + '명'].filter(String).join(' · ') });
+      }
+    });
+  }
+  items.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+  return { ok: true, items: items, canApprove: isMgr, canReview: isGm };
+}
+
+const SHEET_AUTO = '자동처리기록';
+const AUTO_FIELDS = [['at', '일시'], ['file', '파일'], ['action', '처리'], ['where', '위치·문서번호'], ['todo', '사람이 할 일'], ['status', '상태'], ['by', '확인자'], ['doneAt', '확인일시']];
+const AUTO_HEADERS = AUTO_FIELDS.map(function (f) { return f[1]; });
+const AUTO_OPEN = '확인 필요', AUTO_DONE = '확인함';
+
+function autoRows_(ss) {
+  const sh = ss.getSheetByName(SHEET_AUTO); // 시트가 없으면 아직 기록이 없는 것(예약 작업이 처음 기록할 때 만든다)
+  if (!sh) return [];
+  const last = sh.getLastRow();
+  if (last < 2) return [];
+  return sh.getRange(2, 1, last - 1, AUTO_HEADERS.length).getValues().map(function (r, i) {
+    const o = { _row: i + 2 };
+    AUTO_FIELDS.forEach(function (f, k) { o[f[0]] = r[k] === null || r[k] === undefined ? '' : (r[k] instanceof Date ? Utilities.formatDate(r[k], 'Asia/Seoul', 'yyyy-MM-dd HH:mm') : String(r[k])); });
+    return o;
+  }).filter(function (o) { return o.file || o.action; });
+}
+
+function autoPublic_(o) {
+  return { row: o._row, at: o.at, file: o.file, action: o.action, where: o.where, todo: o.todo, status: o.status || (o.todo ? AUTO_OPEN : ''), by: o.by, doneAt: o.doneAt };
+}
+
+/** 자동처리 기록의 「사람이 할 일」을 확인함으로 표시(공무·현장소장). */
+function doneAuto_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s;
+  if (me.role !== '공무' && me.role !== MANAGER_ROLE) return fail_('FORBIDDEN', '공무 또는 현장소장만 표시할 수 있습니다.');
+  const row = Number(req.row) || 0;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const sh = getDb_().getSheetByName(SHEET_AUTO);
+    if (!sh || row < 2 || row > sh.getLastRow()) return fail_('NOT_FOUND', '없는 기록입니다.');
+    const file = String(sh.getRange(row, 2).getValue() || '');
+    if (req.file !== undefined && String(req.file) !== file) return fail_('STATE', '기록이 바뀌었습니다. 새로고침한 뒤 다시 눌러 주세요.');
+    sh.getRange(row, 6, 1, 3).setValues([[AUTO_DONE, me.name, nowStr_()]]);
+    audit_(me.id, '자동처리확인', file);
+    return { ok: true };
+  } finally {
+    lock.releaseLock();
+  }
 }

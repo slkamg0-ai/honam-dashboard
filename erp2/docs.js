@@ -5,6 +5,7 @@
   var E = window.ERP2; if (!E) return;
   var $ = E.$, el = E.el;
   var items = [], next = {}, today = '';
+  var pendingId = '';     // 결재함에서 「열기」로 들어온 건(목록을 받으면 바로 상세를 연다)
   var filter = 'all', query = '';
   var F = null;            // 작성 중인 양식 상태 {kind, id}
   var busy = false;
@@ -178,6 +179,8 @@
   // ── 목록 ──
   function openList() { E.showView('vDoc'); pane('list'); buildFilters(); load(); loadDrafts(); }
   $('tileDoc').onclick = openList;
+  E.openItem = E.openItem || {};
+  E.openItem.doc = function (id) { filter = 'queue'; pendingId = String(id || ''); openList(); };
   $('dBack').onclick = function () { E.showView('vHome'); refreshBadge(); };
 
   var FILTERS = [['all', '전체'], ['품의', '품의'], ['공문', '공문'], ['접수', '접수'], ['mine', '내가 쓴 것'], ['queue', '결재 대기함'], ['reply', '회신 필요']];
@@ -240,6 +243,7 @@
       if (E.authLost(r)) return;
       if (!r.ok) { items = []; render(); setMsg('dMsg', r.message || '목록을 불러오지 못했습니다.'); return; }
       items = r.items; next = r.next || {}; today = r.today || today; setMsg('dMsg', ''); render();
+      if (pendingId) { var hit = items.filter(function (x) { return x.id === pendingId; })[0]; pendingId = ''; if (hit) showDetail(hit); }
     });
   }
 

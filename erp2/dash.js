@@ -55,7 +55,10 @@
       b.appendChild(el('span', 'l', t.label));
       b.appendChild(el('span', 'n', t.tag ? t.tag : num(t.n) + (t.unit || '')));
       var tile = GO[t.go];
-      b.onclick = function () { if (tile && $(tile)) $(tile).click(); };
+      b.onclick = function () {
+        if (t.go === 'auto') { var a = $('dbAuto'); if (a) a.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; } // 자동처리 기록 패널로
+        if (tile && $(tile)) $(tile).click();
+      };
       box.appendChild(b);
     });
   }
