@@ -8,14 +8,14 @@
   var E = window.ERP2; if (!E) return;
   var $ = E.$, el = E.el;
 
-  var TILE = { exp: 'tileExp', doc: 'tileDoc', ops: 'tileOps', task: 'tileTask', close: 'tileClose' };
-  var VIEW_KEY = { vHome: 'home', vApv: 'apv', vExp: 'exp', vDoc: 'doc', vOps: 'ops', vTask: 'task', vClose: 'close', vOrg: 'org' };
+  var TILE = { exp: 'tileExp', doc: 'tileDoc', ops: 'tileOps', task: 'tileTask', close: 'tileClose', jnl: 'tileJnl' };
+  var VIEW_KEY = { vHome: 'home', vApv: 'apv', vExp: 'exp', vDoc: 'doc', vOps: 'ops', vTask: 'task', vClose: 'close', vOrg: 'org', vJnl: 'jnl' };
   var SIDE_VIEWS = ['vOrg', 'vStamp', 'vAdmin', 'vApv'];   // 나갈 때 정리 단계(홈으로 버튼)를 거쳐야 하는 화면
   var APPROVE = { exp: 1, doc: 1, ops: 1 };
   var opener = null, pollTimer = 0;
 
   function current() {
-    var views = ['vHome', 'vApv', 'vOrg', 'vStamp', 'vAdmin', 'vExp', 'vClose', 'vOps', 'vDoc', 'vTask'];
+    var views = ['vHome', 'vApv', 'vOrg', 'vStamp', 'vAdmin', 'vExp', 'vClose', 'vOps', 'vDoc', 'vTask', 'vJnl'];
     for (var i = 0; i < views.length; i++) if (!$(views[i]).classList.contains('hide')) return views[i];
     return '';
   }
@@ -53,7 +53,8 @@
     exp: function () { return !loading('xMsg') && !!$('xMonth').value; },
     ops: function () { return !loading('oMsg') && !!$('oMonth').value; },
     doc: function () { return true; },
-    task: function () { return !!$('tSum').textContent; }
+    task: function () { return !!$('tSum').textContent; },
+    jnl: function () { return !loading('jMsg') && !!$('jSum').textContent; }
   };
   function quickNew(key, btnId) {
     openTile(key);
@@ -85,11 +86,13 @@
       body.appendChild(item('공문 쓰기', '감리단 · 발주처로 보내는 문서', function () { quickNew('doc', 'dNewG'); }));
       body.appendChild(item('받은 문서 접수', '발주처 · 감리단에서 온 공문', function () { quickNew('doc', 'dNewR'); }));
       if (gm) body.appendChild(item('업무 지시', '담당자와 기한 정하기', function () { quickNew('task', 'tNew'); }));
+      if (me.role === '현장소장') body.appendChild(item('작업일지 쓰기', '나만 보는 하루 기록', function () { quickNew('jnl', 'jNew'); }));
     } else {
       $('navSheetT').textContent = '메뉴';
       body.appendChild(item('경비', '영수증 등록 · 검토 · 승인', function () { openTile('exp'); }));
       body.appendChild(item('작업일보', '출역 · 장비 · 작업내용', function () { openTile('ops'); }));
       body.appendChild(item('업무 지시', '지시 · 기한 · 완료 확인', function () { openTile('task'); }));
+      if (me.role === '현장소장') body.appendChild(item('작업일지', '나만 보는 하루 기록 · 검색', function () { openTile('jnl'); }));
       body.appendChild(item('월 마감', '점검 · 마감 · 본사 제출 엑셀', function () { openTile('close'); }));
       body.appendChild(item('조직표', '', function () { leaveSide(); $('btnOrg').click(); }));
     }

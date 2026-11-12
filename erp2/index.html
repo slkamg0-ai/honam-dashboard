@@ -93,6 +93,9 @@
   .tk .mt { font-size: 12px; color: #64748b; margin-top: 3px; } .tk .bd { font-size: 13px; margin-top: 6px; white-space: pre-wrap; word-break: break-all; }
   .tk .urg { display: inline-block; background: #dc2626; color: #fff; font-size: 10.5px; font-weight: 800; border-radius: 6px; padding: 1px 6px; margin-right: 5px; vertical-align: 1px; }
   .tk .tkb { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; } .tk .tkb button { flex: none; min-width: 0; padding: 6px 12px; font-size: 12.5px; }
+  .jlock { display: inline-block; font-size: 10.5px; font-weight: 800; padding: 1px 7px; border-radius: 9px; background: #ede9fe; color: #5b21b6; vertical-align: 2px; }
+  .jsites button { font-size: 12px; padding: 5px 9px; }
+  .tk .jf { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 5px; }
   .tk .tkact { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; } .tk .tkact input { flex: 1 1 100%; width: auto; min-width: 0; margin: 0; } .tk .tkact button { flex: none; min-width: 0; padding: 8px 14px; font-size: 13px; }
   label.chk { display: flex; gap: 8px; align-items: center; font-weight: 700; margin-top: 10px; } label.chk input { width: auto; margin: 0; }
   .tile, .tile small { word-break: keep-all; overflow-wrap: break-word; }
@@ -346,6 +349,7 @@
     <button type="button" class="nv" data-go="doc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg><span>문서</span></button>
     <button type="button" class="nv desk" data-go="ops"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3h8v4H8z"/><path d="M6 5H4v16h16V5h-2"/><path d="M8 12h8M8 16h5"/></svg><span>작업일보</span></button>
     <button type="button" class="nv desk" data-go="task"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></svg><span>업무 지시</span></button>
+    <button type="button" class="nv desk hide" data-go="jnl" id="navJnl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h12a3 3 0 0 1 3 3v13H7a3 3 0 0 1-3-3z"/><path d="M4 17a3 3 0 0 1 3-3h12"/><path d="M9 8h6"/></svg><span>작업일지</span></button>
     <button type="button" class="nv desk" data-go="close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/><path d="M9 15l2 2 4-4"/></svg><span>월 마감</span></button>
     <div class="sep" aria-hidden="true"></div>
     <button type="button" class="nv desk" data-go="org"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="7" r="3"/><path d="M5 21v-2a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v2"/></svg><span>조직표</span></button>
@@ -374,6 +378,7 @@
           <button type="button" class="tile on" id="tileOps">작업일보<small id="tileOpsSub">출역 · 장비 · 작업내용</small></button>
           <button type="button" class="tile on" id="tileClose">월 마감<small id="tileCloseSub">점검 · 마감 · 본사 제출 엑셀</small></button>
           <button type="button" class="tile on" id="tileTask">업무 지시<small id="tileTaskSub">지시 · 기한 · 완료 확인</small></button>
+          <button type="button" class="tile on hide" id="tileJnl">작업일지 <span class="jlock">나만 보기</span><small id="tileJnlSub">하루 기록 · 협의 · 설계변경 근거</small></button>
         </div>
       </div>
     </div>
@@ -522,6 +527,48 @@
       </div>
     </div>
 
+    <div id="vJnl" class="hide">
+      <div id="jList">
+        <div class="panel">
+          <h3>작업일지 <span class="jlock">나만 보기</span> <button class="sm" id="jBack" style="float:right">← 홈으로</button></h3>
+          <div class="xbar"><button class="sm" id="jPrev">◀</button><input type="month" id="jMonth"><button class="sm" id="jNext">▶</button><button class="sm" id="jAll">전체</button></div>
+          <input type="text" id="jSearch" maxlength="40" autocomplete="off" placeholder="검색: 내용 · 태그 · 개소(#19)">
+          <div class="chips" id="jFilters"></div>
+          <div class="xsum" id="jSum"></div>
+          <div id="jItems"></div>
+          <div class="msg" id="jMsg"></div>
+          <div class="row-btns"><button type="button" class="pri" id="jNew" style="margin-top:0">+ 오늘 일지 쓰기</button><button type="button" id="jCsv" style="margin-top:0">엑셀(CSV) 내려받기</button></div>
+          <p class="desc" style="margin-top:10px">이 일지는 쓴 사람만 볼 수 있습니다. 서버에서 본인 것만 돌려주며, 다른 직원 화면에는 메뉴도 보이지 않습니다.</p>
+        </div>
+      </div>
+      <div id="jForm" class="hide">
+        <div class="panel">
+          <h3 id="jFTitle">작업일지</h3>
+          <div class="grid2">
+            <div><label for="jDate">일자</label><input type="date" id="jDate"></div>
+            <div class="grid2"><div><label for="jWeather">날씨</label><select id="jWeather"></select></div><div><label for="jTemp">기온</label><input type="text" id="jTemp" maxlength="20" autocomplete="off" placeholder="예: 3~12℃"></div></div>
+          </div>
+          <div class="desc" id="jOpsNote"></div>
+          <button type="button" class="sm hide" id="jFromOps">작업일보에서 불러오기</button>
+          <label>개소 <small style="font-weight:500;color:#64748b">(누르면 선택)</small></label><div class="chips jsites" id="jSites"></div>
+          <label for="jWork">오늘 한 일</label><textarea id="jWork" rows="5" maxlength="3000" placeholder="개소별 작업, 진행 상황"></textarea>
+          <label for="jCrew">인원·장비</label><textarea id="jCrew" rows="2" maxlength="1000" placeholder="예: #19 직원 2 · 기능공 5 / 굴착기 0.6W 1대"></textarea>
+          <label for="jMeet">협의·지시 <small style="font-weight:500;color:#64748b">(누구와 · 무엇을 · 결과)</small></label><textarea id="jMeet" rows="3" maxlength="2000" placeholder="예: 감리단 ○○○ — #22 식생기반재 공법 확인, 다음 주 회신"></textarea>
+          <label for="jIssue">문제·특이사항</label><textarea id="jIssue" rows="3" maxlength="2000" placeholder="예: 우천으로 #7 콘크리트 타설 연기"></textarea>
+          <label for="jSafety">안전</label><textarea id="jSafety" rows="2" maxlength="1000" placeholder="예: TBM 실시, 열차 접근 경보 1회, 아차사고 없음"></textarea>
+          <label for="jCost">비용 메모</label><textarea id="jCost" rows="2" maxlength="1000" placeholder="예: 계약외 잡석 5㎥ 반입(약 40만원) — 근거 사진 보관"></textarea>
+          <label class="chk"><input type="checkbox" id="jChange"> 설계변경·실정보고 근거로 남기기</label>
+          <label class="chk"><input type="checkbox" id="jExtra"> 계약외 추가 투입이 있었음</label>
+          <label class="chk"><input type="checkbox" id="jStar"> 중요한 날로 표시</label>
+          <label for="jPlan">내일 할 일</label><div class="desc" id="jPrevPlan"></div><textarea id="jPlan" rows="3" maxlength="1500" placeholder="내일 확인·처리할 일"></textarea>
+          <label for="jTags">태그 <small style="font-weight:500;color:#64748b">(쉼표로 구분)</small></label><input type="text" id="jTags" maxlength="120" autocomplete="off" placeholder="예: 감리협의, 민원, 장비고장">
+          <div class="row-btns"><button type="button" id="jCancel">목록으로</button><button type="button" class="pri" id="jSave" style="margin-top:0">저장</button></div>
+          <button type="button" class="sm warn hide" id="jDel" style="margin-top:10px">이 날 일지 삭제</button>
+          <div class="msg" id="jFMsg"></div>
+        </div>
+      </div>
+    </div>
+
     <div id="vDoc" class="hide">
       <div id="dList">
         <div class="panel">
@@ -665,8 +712,8 @@
   }
 
   // ── 다른 파일(expense.js)이 쓰는 연결 지점 ──
-  var VIEWS = ['vHome', 'vApv', 'vOrg', 'vStamp', 'vAdmin', 'vExp', 'vClose', 'vOps', 'vDoc', 'vTask'];
-  var HOME_BACK = { vApv: 'apvBack', vOrg: 'orgBack', vStamp: 'stBack', vAdmin: 'btnAdminBack', vExp: 'xBack', vClose: 'cBack', vOps: 'oBack', vDoc: 'dBack', vTask: 'tBack' };
+  var VIEWS = ['vHome', 'vApv', 'vOrg', 'vStamp', 'vAdmin', 'vExp', 'vClose', 'vOps', 'vDoc', 'vTask', 'vJnl'];
+  var HOME_BACK = { vApv: 'apvBack', vOrg: 'orgBack', vStamp: 'stBack', vAdmin: 'btnAdminBack', vExp: 'xBack', vClose: 'cBack', vOps: 'oBack', vDoc: 'dBack', vTask: 'tBack', vJnl: 'jBack' };
   $('btnHome').onclick = function () {
     for (var v in HOME_BACK) if (!$(v).classList.contains('hide')) { $(HOME_BACK[v]).click(); window.scrollTo(0, 0); return; }
     window.ERP2.showView('vHome'); window.scrollTo(0, 0);
@@ -866,6 +913,7 @@
 <script src="ops.js"></script>
 <script src="docs.js"></script>
 <script src="tasks.js"></script>
+<script src="journal.js"></script>
 <script src="org.js"></script>
 <script src="stamp.js"></script>
 <script src="dash.js"></script>

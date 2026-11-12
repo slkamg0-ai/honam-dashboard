@@ -77,7 +77,7 @@ function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.20' }; }
+function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.21' }; }
 
 function route_(req) {
   const t0 = Date.now();
@@ -140,6 +140,10 @@ function route_(req) {
       case 'cancelTask': out = cancelTask_(req); break;
       case 'approvalQueue': out = approvalQueue_(req); break;
       case 'doneAuto': out = doneAuto_(req); break;
+      case 'listJournal': out = listJournal_(req); break;
+      case 'getJournal': out = getJournal_(req); break;
+      case 'saveJournal': out = saveJournal_(req); break;
+      case 'deleteJournal': out = deleteJournal_(req); break;
       default: out = fail_('UNKNOWN_ACTION', '알 수 없는 요청입니다.');
     }
   } catch (err) {
@@ -2873,6 +2877,151 @@ function doneAuto_(req) {
     if (req.file !== undefined && String(req.file) !== file) return fail_('STATE', '기록이 바뀌었습니다. 새로고침한 뒤 다시 눌러 주세요.');
     sh.getRange(row, 6, 1, 3).setValues([[AUTO_DONE, me.name, nowStr_()]]);
     audit_(me.id, '자동처리확인', file);
+    return { ok: true };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+
+// ═════════════════════════════ 소장 작업일지 (본인만 보는 개인 기록) ═════════════════════════════
+// 현장소장이 하루 한 장씩 남기는 개인 일지. 작업일보(감리 제출용)와 별개로, 협의·지시·문제·설계변경 근거·계약외 투입을 날짜별로 쌓아 검색한다.
+// 서버는 작성자 본인 것만 돌려준다(같은 현장소장 역할이라도 남의 일지는 못 본다). 감사 기록에는 날짜만 남기고 내용은 남기지 않는다.
+const SHEET_JNL = '소장작업일지';
+const JNL_FIELDS = [['id', 'ID'], ['date', '일자'], ['weather', '날씨'], ['temp', '기온'], ['sites', '개소'], ['work', '오늘 한 일'], ['crew', '인원·장비'],
+  ['meet', '협의·지시'], ['issue', '문제·특이사항'], ['safety', '안전'], ['change', '설계변경근거'], ['extra', '계약외투입'], ['cost', '비용메모'],
+  ['plan', '내일 할 일'], ['tags', '태그'], ['star', '중요'], ['authorId', '작성자ID'], ['author', '작성자'], ['status', '상태'], ['created', '작성일시'], ['updated', '수정일시']];
+const JNL_HEADERS = JNL_FIELDS.map(function (f) { return f[1]; });
+const JNL_TEXT = { work: 3000, crew: 1000, meet: 2000, issue: 2000, safety: 1000, cost: 1000, plan: 1500 };
+const JNL_DEL = '삭제';
+
+function jnlAuth_(req) {
+  const g = expAuth_(req); if (g.err) return g;
+  if (g.s.role !== MANAGER_ROLE) return { err: fail_('FORBIDDEN', '작업일지는 현장소장만 쓰고 볼 수 있습니다.') };
+  return g;
+}
+
+function ensureJnlSheet_(ss) {
+  let sh = ss.getSheetByName(SHEET_JNL);
+  if (!sh) {
+    sh = ss.insertSheet(SHEET_JNL);
+    sh.getRange(1, 1, sh.getMaxRows(), JNL_HEADERS.length).setNumberFormat('@');
+    sh.getRange(1, 1, 1, JNL_HEADERS.length).setValues([JNL_HEADERS]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+function jnlRows_(sh) {
+  const last = sh.getLastRow();
+  if (last < 2) return [];
+  return sh.getRange(2, 1, last - 1, JNL_HEADERS.length).getValues().map(function (r, i) {
+    const o = { _row: i + 2 };
+    JNL_FIELDS.forEach(function (f, k) { o[f[0]] = r[k] === null || r[k] === undefined ? '' : String(r[k]); });
+    return o;
+  });
+}
+
+function jnlWrite_(sh, o, rowNo) {
+  o.updated = nowStr_();
+  const arr = JNL_FIELDS.map(function (f) { return o[f[0]] === undefined || o[f[0]] === null ? '' : String(o[f[0]]); });
+  const row = rowNo || (sh.getLastRow() + 1);
+  sh.getRange(row, 1, 1, JNL_HEADERS.length).setNumberFormat('@');
+  sh.getRange(row, 1, 1, JNL_HEADERS.length).setValues([arr]);
+  o._row = row;
+}
+
+function jnlMine_(rows, me) { return rows.filter(function (o) { return o.authorId === me.id && o.status !== JNL_DEL; }); }
+
+function jnlPublic_(o) {
+  const out = {};
+  JNL_FIELDS.forEach(function (f) { if (f[0] !== 'authorId' && f[0] !== 'author' && f[0] !== 'status') out[f[0]] = o[f[0]] || ''; });
+  out.change = o.change === 'Y'; out.extra = o.extra === 'Y'; out.star = o.star === 'Y';
+  return out;
+}
+
+/** 그날 작업일보(삭제 제외)를 모아 일지 초안 재료로 만든다: 날씨, 개소, 인원·장비, 작업내용 */
+function jnlFromOps_(ss, date) {
+  const rows = opsRows_(ensureOpsSheet_(ss)).filter(function (o) { return o.date === date && o.status !== OST.DEL; }).map(opsPublic_);
+  if (!rows.length) return null;
+  const wc = {}; rows.forEach(function (o) { if (o.weather) wc[o.weather] = (wc[o.weather] || 0) + 1; });
+  const weather = Object.keys(wc).sort(function (a, b) { return wc[b] - wc[a]; })[0] || '';
+  rows.sort(function (a, b) { return a.site - b.site; });
+  const sites = [], crew = [], work = [];
+  rows.forEach(function (o) {
+    const tag = o.site ? '#' + o.site : '공통';
+    if (o.site && sites.indexOf(o.site) < 0) sites.push(o.site);
+    const ppl = []; if (o.staff) ppl.push('직원 ' + o.staff); if (o.worker) ppl.push('기능공 ' + o.worker); if (o.safety) ppl.push('감시원·신호수 ' + o.safety);
+    if (ppl.length || o.equip) crew.push(tag + ' ' + ppl.join(' · ') + (o.equip ? (ppl.length ? ' / ' : '') + o.equip : ''));
+    if (o.memo) work.push(tag + (o.kind ? ' [' + o.kind + ']' : '') + ' ' + o.memo + (o.progress !== null ? ' (누계 ' + o.progress + '%)' : ''));
+  });
+  return { weather: weather, sites: sites.join(', '), crew: crew.join('\n'), work: work.join('\n'), count: rows.length };
+}
+
+function listJournal_(req) {
+  const g = jnlAuth_(req); if (g.err) return g.err;
+  const mine = jnlMine_(jnlRows_(ensureJnlSheet_(getDb_())), g.s).sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
+  return { ok: true, today: nowStr_().slice(0, 10), items: mine.map(jnlPublic_) };
+}
+
+function getJournal_(req) {
+  const g = jnlAuth_(req); if (g.err) return g.err;
+  const date = String(req.date || '').trim();
+  if (!validDate_(date)) return fail_('INVALID', '날짜가 올바르지 않습니다.');
+  const ss = getDb_();
+  const mine = jnlMine_(jnlRows_(ensureJnlSheet_(ss)), g.s);
+  let item = null, prev = null;
+  mine.forEach(function (o) {
+    if (o.date === date) item = o;
+    else if (o.date < date && (!prev || o.date > prev.date)) prev = o;
+  });
+  return { ok: true, item: item ? jnlPublic_(item) : null, ops: jnlFromOps_(ss, date), prevPlan: prev && prev.plan ? { date: prev.date, plan: prev.plan } : null };
+}
+
+function saveJournal_(req) {
+  const g = jnlAuth_(req); if (g.err) return g.err;
+  const me = g.s, date = String(req.date || '').trim(), today = nowStr_().slice(0, 10);
+  if (!validDate_(date)) return fail_('INVALID', '날짜가 올바르지 않습니다.');
+  if (date > today) return fail_('INVALID', '앞으로의 날짜에는 일지를 쓸 수 없습니다. 내일 계획은 「내일 할 일」에 적어 주세요.');
+  const v = {
+    weather: OPS_WEATHER.indexOf(String(req.weather || '')) >= 0 ? String(req.weather) : '',
+    temp: cleanText_(req.temp, 20), tags: cleanText_(req.tags, 120),
+    sites: String(req.sites || '').split(/[,\s]+/).map(function (s) { return Number(s); })
+      .filter(function (n, i, a) { return n > 0 && a.indexOf(n) === i && SITES.some(function (r) { return r[0] === n; }); }).sort(function (a, b) { return a - b; }).join(', '),
+    change: req.change ? 'Y' : '', extra: req.extra ? 'Y' : '', star: req.star ? 'Y' : ''
+  };
+  Object.keys(JNL_TEXT).forEach(function (k) { v[k] = cleanMulti_(req[k], JNL_TEXT[k]); });
+  if (!v.work && !v.meet && !v.issue && !v.safety && !v.cost && !v.plan) return fail_('INVALID', '오늘 한 일, 협의·지시, 문제, 안전, 비용, 내일 할 일 중 하나는 적어 주세요.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const sh = ensureJnlSheet_(getDb_());
+    let o = null;
+    jnlMine_(jnlRows_(sh), me).forEach(function (r) { if (r.date === date) o = r; });
+    const isNew = !o;
+    if (!o) o = { id: 'JNL-' + date.replace(/-/g, '') + '-' + me.id, date: date, authorId: me.id, author: me.name, status: '작성', created: nowStr_() };
+    Object.keys(v).forEach(function (k) { o[k] = v[k]; });
+    jnlWrite_(sh, o, o._row);
+    audit_(me.id, isNew ? '작업일지작성' : '작업일지수정', date);
+    return { ok: true, item: jnlPublic_(o) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function deleteJournal_(req) {
+  const g = jnlAuth_(req); if (g.err) return g.err;
+  const me = g.s, date = String(req.date || '').trim();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const sh = ensureJnlSheet_(getDb_());
+    let o = null;
+    jnlMine_(jnlRows_(sh), me).forEach(function (r) { if (r.date === date) o = r; });
+    if (!o) return fail_('NOT_FOUND', '그 날짜의 일지가 없습니다.');
+    o.status = JNL_DEL;
+    jnlWrite_(sh, o, o._row);
+    audit_(me.id, '작업일지삭제', date);
     return { ok: true };
   } finally {
     lock.releaseLock();
