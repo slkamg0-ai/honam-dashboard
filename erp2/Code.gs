@@ -62,6 +62,7 @@ function setup() {
 
 function doGet(e) {
   const action = String((e && e.parameter && e.parameter.action) || 'ping');
+  if (action === 'plan') return json_(publicPlan_());
   if (action !== 'ping') return json_({ ok: false, error: 'POST_ONLY', message: '이 요청은 POST 로만 보낼 수 있습니다.' });
   return json_(ping_());
 }
@@ -77,7 +78,7 @@ function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.22' }; }
+function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.23' }; }
 
 function route_(req) {
   const t0 = Date.now();
@@ -1128,6 +1129,43 @@ function planData_() {
   return out;
 }
 function opsPlan_() { return planData_().plan; }
+// 공개 현황판용 공정 조회(GET ?action=plan, 로그인 없음). 공정 일정·조 구간·월별 보할만 내보낸다(직원·경비·문서 정보 없음).
+const SHEET_SEG = '공정구간', SHEET_MON = '공정보할';
+function publicPlan_() {
+  const cache = CacheService.getScriptCache(), key = 'publicPlan_v1';
+  try { const hit = cache.get(key); if (hit) return JSON.parse(hit); } catch (e) { /* 캐시 실패는 무시 */ }
+  const out = { ok: true, version: '', src: 'code', updated: new Date().toISOString(), sites: [], seg: [], mon: [], holidays: [] };
+  const pd = planData_();
+  out.version = pd.version; out.src = pd.src; out.holidays = pd.holidays;
+  try {
+    const ss = getDb_();
+    const sh = ss.getSheetByName(SHEET_PLAN);
+    if (sh && sh.getLastRow() >= 2) {
+      sh.getRange(2, 1, sh.getLastRow() - 1, PLAN_HEADERS.length).getValues().forEach(function (r) {
+        const no = Number(r[0]), a = cellStr_(r[1]), b = cellStr_(r[2]);
+        if (no > 0 && isYmd_(a) && isYmd_(b) && a <= b) out.sites.push({ no: no, start: a, end: b, crew: cellStr_(r[3]).slice(0, 20), note: cellStr_(r[5]).slice(0, 60) });
+      });
+    }
+    const sg = ss.getSheetByName(SHEET_SEG);
+    if (sg && sg.getLastRow() >= 2) {
+      sg.getRange(2, 1, sg.getLastRow() - 1, 5).getValues().forEach(function (r) {
+        const no = Number(r[0]), a = cellStr_(r[3]), b = cellStr_(r[4]);
+        if (no > 0 && isYmd_(a) && isYmd_(b) && a <= b) out.seg.push([no, cellStr_(r[1]).slice(0, 20), cellStr_(r[2]).slice(0, 30), a, b]);
+      });
+    }
+    const sm = ss.getSheetByName(SHEET_MON);
+    if (sm && sm.getLastRow() >= 2) {
+      sm.getRange(2, 1, sm.getLastRow() - 1, 3).getValues().forEach(function (r) {
+        const m = cellStr_(r[0]), v = Number(r[1]), c = Number(r[2]);
+        if (/^\d{4}-\d{2}$/.test(m) && isFinite(v) && isFinite(c)) out.mon.push([m, Math.round(v), Math.round(c * 100) / 100]);
+      });
+      out.mon.sort(function (x, y) { return x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0; });
+    }
+  } catch (e) { out.ok = false; out.error = 'SHEET'; }
+  try { cache.put(key, JSON.stringify(out), 60); } catch (e) { /* 크기 초과 등은 무시 */ }
+  return out;
+}
+
 function opsHolidays_() { return planData_().holidays; }
 
 const OPS_WEATHER = ['맑음', '구름조금', '흐림', '비', '눈', '강풍·한파'];
