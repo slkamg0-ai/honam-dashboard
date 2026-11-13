@@ -89,6 +89,22 @@ table.t td.r,table.t th.r{text-align:right}
 .warn{background:#fff4e0;border:1px solid var(--ora);padding:6px 10px;font-size:13px;margin-bottom:10px}
 .kindsel{width:100%;margin-bottom:3px}
 @media(max-width:1000px){#app{grid-template-columns:1fr}aside{display:flex;overflow-x:auto}aside button{width:auto;white-space:nowrap}.grid2{grid-template-columns:1fr}.drawer{width:100%}}
+/* 화면 손질 2026-11-14: 현황판·ERP와 같은 표시(도면 꺾쇠, 점+글자 상태, 굵기 정리) */
+.login,.card{position:relative}
+.login:before,.login:after,.card:before,.card:after{content:"";position:absolute;width:9px;height:9px;border:2px solid var(--pri);pointer-events:none}
+.login:before,.card:before{left:-1px;top:-1px;border-right:0;border-bottom:0}.login:after,.card:after{right:-1px;bottom:-1px;border-left:0;border-top:0}
+.login h1{font-weight:600}.login .btn{width:100%;min-height:40px;margin-top:8px}
+header h1,.top h2,.card h3,.drawer h3{font-weight:600}
+.kpi .v,header .dd b{font-weight:600;font-variant-numeric:tabular-nums}
+.btn,aside button,table.t th,.g .row.h,.g .row.crew,.fld span,.kpi .l{font-weight:500}
+aside .cnt{background:var(--pri2);font-variant-numeric:tabular-nums}
+.badge{border:0;background:transparent!important;padding:0;display:inline-flex;align-items:center;gap:5px;color:var(--sub)}
+.badge:before{content:"";width:6px;height:6px;border-radius:50%;background:#9aa1a9}
+.b-제출{color:#a33f00}.b-제출:before{background:var(--ora)}
+.b-확정{color:#1c6a2b}.b-확정:before{background:var(--grn)}
+.b-반려{color:var(--red)}.b-반려:before{background:var(--red)}
+.b-미작성:before,.b-취소:before{background:#c3c7cc}
+#toast{border-radius:6px}
 </style></head><body>
 <div id="busy"></div><div id="toast"></div>
 

@@ -115,6 +115,27 @@ html[data-theme=white] .thm{border-color:var(--pri)}
 html[data-theme=white] .thm button.on{background:var(--pri2);color:#fff}
 html[data-theme=white] .kpi,html[data-theme=white] .card{box-shadow:0 1px 0 rgba(29,31,32,.04)}
 html[data-theme=white] .asec{background:#f3f4f5}
+/* 화면 손질 2026-11-14: 모눈 배경 걷기(도면 꺾쇠만 남김), 원색 배지 → 점+글자, 지도 버튼·체크칸 조용히, 굵기 정리 */
+:root{--acc:#416180;--bad:#c4312c;--warn:#b26b00}
+html body{background-image:none}
+header h1{font-weight:600;letter-spacing:0}
+.card h2{font-weight:600;letter-spacing:0}
+.kpi .v,.hr b,.dday b,.tri b{font-weight:600}
+.kpi .l,.srow .t,.prow .pt,.det .t,.btns a,th,tr.tot td{font-weight:500}
+.tag{background:transparent!important;color:var(--sub);font-weight:500;padding:0;margin-left:8px;display:inline-flex;align-items:center;gap:5px;font-size:12px}
+.tag:before{content:"";width:6px;height:6px;border-radius:50%;background:#9aa1a9;flex:none}
+.t-w{color:#b4500b}.t-w:before{background:var(--ora)}
+.t-d{color:var(--grn)}.t-d:before{background:var(--grn)}
+.t-r{color:var(--bad)}.t-r:before{background:var(--bad)}
+.t-b{color:var(--acc)}.t-b:before{background:var(--acc)}
+.btns a,.btns a.k,.btns a.n{background:#fff;color:var(--ink);border:1px solid var(--bd);gap:8px}
+.btns a.k:before,.btns a.n:before{content:"";width:8px;height:8px;border-radius:2px;flex:none}
+.btns a.k:before{background:#f2d700}.btns a.n:before{background:#03c75a}
+.btns a{display:flex;align-items:center;justify-content:center}.btns a:hover{background:#f6f7f8}
+.pchk{width:22px;height:22px;border:1.5px solid var(--bd);border-radius:4px;font-size:14px;margin-top:2px}
+.pchk.on{background:var(--grn);border-color:var(--grn)}
+.abar.l-late,.abar.l-soon{background:var(--panel)}
+.warn{background:rgba(232,89,12,.05)}
 </style></head><body>
 <header><div class="hrow"><div><h1>호남고속선 재해예방공사 현황판<span class="badge-plan">계획안</span></h1>
 <div class="s">국가철도공단 · (주)동우건설 · 정읍~광주송정 등 26개 개소</div></div>
@@ -165,7 +186,7 @@ function days(a,b){return Math.round((b-a)/864e5)}
 function f2(n){return n<10?"0"+n:""+n}
 function fd(s){return s.slice(2,4)+"."+s.slice(5,7)+"."+s.slice(8,10)}
 function fdate(d){return d.getFullYear()+"."+f2(d.getMonth()+1)+"."+f2(d.getDate())}
-var GC={"북부":"#0b7285","장성":"#2b8a3e","광주":"#6741d9","순천·광양":"#d9480f","곡성":"#e8590c"};
+var GC={"북부":"#0b7285","장성":"#2b8a3e","광주":"#4f6db8","순천·광양":"#d9480f","곡성":"#e8590c"};
 var START=D(DATA.start),DEAD=D(DATA.deadline),EARLY=D(DATA.earlyEnd);
 var S=DATA.sites;
 function status(s){var a=D(s.start),b=D(s.end);return TODAY<a?"p":(TODAY>b?"d":"w")}
