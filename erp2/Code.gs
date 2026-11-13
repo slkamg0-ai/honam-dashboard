@@ -77,7 +77,7 @@ function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.21' }; }
+function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.22' }; }
 
 function route_(req) {
   const t0 = Date.now();
@@ -601,8 +601,8 @@ function getMaster_(req) {
   const g = expAuth_(req); if (g.err) return g.err;
   return {
     ok: true, categories: EXP_CATEGORIES, payMethods: EXP_PAY, budgetItems: EXP_BUDGET, catBudget: EXP_CAT_BUDGET, defaultBudget: EXP_DEFAULT_BUDGET,
-    sites: SITES.map(function (r) { const p = OPS_PLAN[r[0]] || ['', '']; return { no: r[0], code: r[1], route: r[2], location: r[3], work: r[4], planStart: p[0], planEnd: p[1] }; }),
-    holidays: OPS_HOLIDAYS, opsWeather: OPS_WEATHER, opsKinds: OPS_KINDS,
+    sites: SITES.map(function (r) { const p = opsPlan_()[r[0]] || ['', '']; return { no: r[0], code: r[1], route: r[2], location: r[3], work: r[4], planStart: p[0], planEnd: p[1] }; }),
+    holidays: opsHolidays_(), opsWeather: OPS_WEATHER, opsKinds: OPS_KINDS,
     execBudget: EXEC_BUDGET, closed: closedMonths_(true), manager: siteManagerName_(),
     maxReceipts: MAX_RECEIPTS, today: nowStr_().slice(0, 10)
   };
@@ -1095,6 +1095,41 @@ const OPS_HOLIDAYS = [
   ["2028-04-09", "일요일"], ["2028-04-12", "법정공휴일"], ["2028-04-16", "일요일"], ["2028-04-23", "일요일"], ["2028-04-30", "일요일"], ["2028-05-01", "법정공휴일"],
   ["2028-05-02", "법정공휴일"], ["2028-05-05", "법정공휴일"], ["2028-05-07", "일요일"], ["2028-05-14", "일요일"], ["2028-05-21", "일요일"], ["2028-05-28", "일요일"]
 ];
+// ── 공정 기준을 시트에서 읽는다(v2.22). 「공정계획」「휴무일」 시트에 값이 있으면 그것을, 없으면 위 코드 값을 쓴다.
+//    공정표를 다시 세우면 시트만 고치면 되고 서버를 다시 배포할 필요가 없다. 한 번 요청 안에서는 한 번만 읽는다.
+const SHEET_PLAN = '공정계획', SHEET_HOL = '휴무일';
+const PLAN_HEADERS = ['개소', '계획착수', '계획완료', '투입조', '공정표버전', '비고'];
+const HOL_HEADERS = ['날짜', '구분'];
+let PLAN_CACHE_ = null;
+function cellStr_(v) { return v instanceof Date ? Utilities.formatDate(v, 'Asia/Seoul', 'yyyy-MM-dd') : String(v === null || v === undefined ? '' : v).trim(); }
+function isYmd_(v) { return /^\d{4}-\d{2}-\d{2}$/.test(v); }
+function planData_() {
+  if (PLAN_CACHE_) return PLAN_CACHE_;
+  const out = { plan: OPS_PLAN, holidays: OPS_HOLIDAYS, version: '11.04 예정공정표', src: 'code' };
+  try {
+    const ss = getDb_();
+    const sh = ss.getSheetByName(SHEET_PLAN);
+    if (sh && sh.getLastRow() >= 2) {
+      const p = {}; let ver = '';
+      sh.getRange(2, 1, sh.getLastRow() - 1, PLAN_HEADERS.length).getValues().forEach(function (r) {
+        const no = Number(r[0]), a = cellStr_(r[1]), b = cellStr_(r[2]);
+        if (no > 0 && isYmd_(a) && isYmd_(b) && a <= b) { p[no] = [a, b]; if (!ver) ver = cellStr_(r[4]); }
+      });
+      if (Object.keys(p).length) { out.plan = p; out.version = ver || '공정계획 시트'; out.src = 'sheet'; }
+    }
+    const hs = ss.getSheetByName(SHEET_HOL);
+    if (hs && hs.getLastRow() >= 2) {
+      const h = hs.getRange(2, 1, hs.getLastRow() - 1, 2).getValues().map(function (r) { return [cellStr_(r[0]), cellStr_(r[1]) || '휴무']; })
+        .filter(function (r) { return isYmd_(r[0]); }).sort(function (x, y) { return x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0; });
+      if (h.length) out.holidays = h;
+    }
+  } catch (e) { /* 시트를 못 읽으면 코드 값으로 계속 */ }
+  PLAN_CACHE_ = out;
+  return out;
+}
+function opsPlan_() { return planData_().plan; }
+function opsHolidays_() { return planData_().holidays; }
+
 const OPS_WEATHER = ['맑음', '구름조금', '흐림', '비', '눈', '강풍·한파'];
 const OPS_KINDS = ['계획', '선행', '지연만회', '추가', '변경'];
 const OST = { DRAFT: '작성중', WAIT: '확인대기', DONE: '확인완료', REJECT: '반려', DEL: '삭제' };
@@ -1150,8 +1185,8 @@ function opsPublic_(o) {
 /** 계획 대비 위치: 휴무일 이름(없으면 ''), 계획 기간 안(in)·앞(before)·뒤(after)·개소 없음(common) */
 function opsJudge_(date, site) {
   let hol = '';
-  for (let i = 0; i < OPS_HOLIDAYS.length; i++) if (OPS_HOLIDAYS[i][0] === date) { hol = OPS_HOLIDAYS[i][1]; break; }
-  const p = site ? OPS_PLAN[site] : null;
+  for (let i = 0; i < opsHolidays_().length; i++) if (opsHolidays_()[i][0] === date) { hol = opsHolidays_()[i][1]; break; }
+  const p = site ? opsPlan_()[site] : null;
   const pos = p ? (date < p[0] ? 'before' : date > p[1] ? 'after' : 'in') : 'common';
   return { hol: hol, pos: pos };
 }
@@ -2524,7 +2559,7 @@ function dashDays_(a, b) { // 'YYYY-MM-DD' 두 날짜 사이 일수(b - a)
   const pa = String(a).split('-'), pb = String(b).split('-');
   return Math.round((Date.UTC(+pb[0], +pb[1] - 1, +pb[2]) - Date.UTC(+pa[0], +pa[1] - 1, +pa[2])) / 86400000);
 }
-function dashHoliday_(d) { for (let i = 0; i < OPS_HOLIDAYS.length; i++) if (OPS_HOLIDAYS[i][0] === d) return true; return false; }
+function dashHoliday_(d) { for (let i = 0; i < opsHolidays_().length; i++) if (opsHolidays_()[i][0] === d) return true; return false; }
 function dashPrevYm_(ym) {
   let y = Number(ym.slice(0, 4)), m = Number(ym.slice(5, 7)) - 1;
   if (m < 1) { m = 12; y -= 1; }
@@ -2564,8 +2599,8 @@ function dashboard_(req) {
   add('expFix', '반려된 내 경비', count(exps, function (o) { return mine(o) && o.status === ST.REJECT; }), '건', 'fix', 'exp');
   add('opsFix', '반려된 내 작업일보', count(ops, function (o) { return mine(o) && o.status === OST.REJECT; }), '건', 'fix', 'ops');
   add('docFix', '반려된 내 문서', count(docs, function (o) { return mine(o) && o.status === DST.REJECT; }), '건', 'fix', 'doc');
-  const planStarts = Object.keys(OPS_PLAN).map(function (k) { return OPS_PLAN[k][0]; }).sort();
-  const first = planStarts[0] || '', lastEnd = Object.keys(OPS_PLAN).map(function (k) { return OPS_PLAN[k][1]; }).sort().pop() || '';
+  const planStarts = Object.keys(opsPlan_()).map(function (k) { return opsPlan_()[k][0]; }).sort();
+  const first = planStarts[0] || '', lastEnd = Object.keys(opsPlan_()).map(function (k) { return opsPlan_()[k][1]; }).sort().pop() || '';
   const hasOps = {}; ops.forEach(function (o) { if (o.status !== OST.REJECT) hasOps[o.date] = true; });
   const workDay = function (d) { return d >= first && !dashHoliday_(d); };
   add('opsToday', '오늘 작업일보 작성', workDay(today) && !hasOps[today] ? 1 : 0, '', 'warn', 'ops', '미작성');
@@ -2614,7 +2649,7 @@ function dashboard_(req) {
     if (!cur || o.date > cur.date || (o.date === cur.date && p > cur.pct)) latest[s] = { date: o.date, pct: p };
   });
   const sites = SITES.map(function (r) {
-    const no = r[0], pl = OPS_PLAN[no] || ['', ''], lt = latest[no] || null, pct = lt ? lt.pct : null;
+    const no = r[0], pl = opsPlan_()[no] || ['', ''], lt = latest[no] || null, pct = lt ? lt.pct : null;
     const planned = dashPlanned_(today, pl[0], pl[1]), inPlan = !!pl[0] && today >= pl[0] && today <= pl[1];
     let state;
     if (pct !== null && pct >= 100) state = '완료';
@@ -2645,7 +2680,11 @@ function dashboard_(req) {
   const autoAll = autoRows_(ss), autoOpen = autoAll.filter(function (o) { return o.status === AUTO_OPEN; });
   if (isGm) add('autoTodo', '자동처리 후 확인할 일', autoOpen.length, '건', 'warn', 'auto');
   const auto = { open: autoOpen.length, items: autoAll.slice(-8).reverse().map(autoPublic_), canDone: isGm };
-  return { ok: true, today: today, role: me.role, todo: todo, month: month, prev: prev, sites: sites, siteSummary: sum, budget: budget, period: period, auto: auto };
+  // ⑥ 작업물 기록(Claude가 공정표·문서를 고칠 때마다 「작업물기록」 시트에 한 줄씩 남긴다) + 지금 쓰는 공정 기준
+  const pd = planData_();
+  const works = workRows_(ss).slice(-8).reverse();
+  return { ok: true, today: today, role: me.role, todo: todo, month: month, prev: prev, sites: sites, siteSummary: sum, budget: budget, period: period, auto: auto,
+    works: works, plan: { version: pd.version, src: pd.src } };
 }
 
 
@@ -2839,6 +2878,20 @@ function approvalQueue_(req) {
   }
   items.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
   return { ok: true, items: items, canApprove: isMgr, canReview: isGm };
+}
+
+const SHEET_WORK = '작업물기록';
+const WORK_FIELDS = [['at', '일시'], ['title', '작업물'], ['ver', '버전'], ['date', '기준일'], ['link', '링크'], ['change', '변경 내용'], ['by', '작성']];
+/** 작업물 기록 읽기(시트가 없으면 빈 목록). 링크는 https 주소만 넘긴다. */
+function workRows_(ss) {
+  const sh = ss.getSheetByName(SHEET_WORK);
+  if (!sh || sh.getLastRow() < 2) return [];
+  return sh.getRange(2, 1, sh.getLastRow() - 1, WORK_FIELDS.length).getValues().map(function (r) {
+    const o = {};
+    WORK_FIELDS.forEach(function (f, k) { o[f[0]] = r[k] instanceof Date ? Utilities.formatDate(r[k], 'Asia/Seoul', k === 0 ? 'yyyy-MM-dd HH:mm' : 'yyyy-MM-dd') : String(r[k] === null || r[k] === undefined ? '' : r[k]).trim(); });
+    if (!/^https:\/\//.test(o.link)) o.link = '';
+    return o;
+  }).filter(function (o) { return o.title; });
 }
 
 const SHEET_AUTO = '자동처리기록';

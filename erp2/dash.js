@@ -38,7 +38,7 @@
   }
   function kv(box, k, v, cls) { var r = el('div', 'dbkv'); r.appendChild(el('b', '', k)); r.appendChild(el('span', cls || '', v)); box.appendChild(r); }
   function setMsg(text, info) { var m = $('dbMsg'); m.className = 'msg' + (info ? ' info' : ''); m.textContent = text || ''; }
-  function hideAll() { ['dbMonth', 'dbSites', 'dbBudget'].forEach(function (id) { $(id).classList.add('hide'); }); }
+  function hideAll() { ['dbMonth', 'dbSites', 'dbBudget', 'dbWorks'].forEach(function (id) { $(id).classList.add('hide'); }); }
 
   // ── ① 오늘 처리할 일 ──
   function renderTodo(r) {
@@ -142,7 +142,27 @@
     p.classList.remove('hide');
   }
 
-  function render(r) { last = r; setMsg(''); renderTodo(r); renderMonth(r); renderSites(r); renderBudget(r); (E.onDash || []).forEach(function (f) { try { f(r); } catch (e) {} }); }
+  // 최근 작업물(서버 v2.22부터): 공정표·문서를 고친 기록. 링크는 https 주소일 때만 건다.
+  function renderWorks(r) {
+    var p = $('dbWorks'), box = $('dbWorksBody'), w = r && r.works;
+    var pv = $('dbPlanVer'); if (pv) pv.textContent = r && r.plan && r.plan.version ? '공정 기준 ' + r.plan.version : '';
+    if (!w) { p.classList.add('hide'); return; }
+    p.classList.remove('hide'); box.textContent = '';
+    $('dbWorksN').textContent = w.length ? '최근 ' + w.length + '건' : '';
+    if (!w.length) { box.appendChild(el('div', 'desc', '아직 기록이 없습니다. 공정표나 문서를 고치면 여기에 남습니다.')); return; }
+    w.forEach(function (o) {
+      var it = el('div', 'au-i wk');
+      var h = el('div', 'h');
+      var t = el(o.link ? 'a' : 'b', '', o.title + (o.ver ? ' ' + o.ver : ''));
+      if (o.link) { t.href = o.link; t.target = '_blank'; t.rel = 'noopener noreferrer'; }
+      h.appendChild(t); h.appendChild(el('span', '', String(o.at || '').slice(5, 16).replace('-', '.')));
+      it.appendChild(h);
+      if (o.change) it.appendChild(el('div', 'w', o.change));
+      box.appendChild(it);
+    });
+  }
+
+  function render(r) { last = r; setMsg(''); renderTodo(r); renderMonth(r); renderSites(r); renderBudget(r); renderWorks(r); (E.onDash || []).forEach(function (f) { try { f(r); } catch (e) {} }); }
 
   function load(force) {
     if (!E.me()) return;
@@ -160,6 +180,10 @@
     });
   }
   $('dbRefresh').onclick = function () { load(true); };
+  // 홈을 띄워 두면 2분마다, 다른 창에 갔다가 돌아오면(1분 넘게 지났을 때) 조용히 다시 불러온다
+  function homeOpen() { return E.me() && !$('vHome').classList.contains('hide') && !document.hidden; }
+  setInterval(function () { if (homeOpen() && Date.now() - startedAt > 115000) load(true); }, 30000);
+  document.addEventListener('visibilitychange', function () { if (homeOpen() && Date.now() - startedAt > 60000) load(true); });
   // nav.js(결재함·메뉴 건수)가 같은 값을 쓴다
   E.onDash = E.onDash || [];
   E.dash = { load: load, last: function () { return last; }, tone: TONE_RANK, go: GO };
@@ -171,5 +195,5 @@
     showView(name);
     if (name === 'vHome' && !wasHome) load();
   };
-  E.onLeave.push(function () { seq++; last = null; showAll = false; startedAt = 0; $('dbTodo').textContent = ''; $('dbDate').textContent = ''; setMsg(''); hideAll(); ['dbMonthBody', 'dbSitesBody', 'dbBudgetBody'].forEach(function (id) { $(id).textContent = ''; }); $('dbRefresh').disabled = false; });
+  E.onLeave.push(function () { seq++; last = null; showAll = false; startedAt = 0; $('dbTodo').textContent = ''; $('dbDate').textContent = ''; setMsg(''); hideAll(); ['dbMonthBody', 'dbSitesBody', 'dbBudgetBody', 'dbWorksBody'].forEach(function (id) { $(id).textContent = ''; }); $('dbRefresh').disabled = false; });
 })();

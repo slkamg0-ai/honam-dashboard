@@ -175,3 +175,5 @@ a, .kv a { color: var(--acc-t); }
 }
 .site-pick label { font-weight: 500; } .site-pick select { font-weight: 500; }
 @media (min-width: 1024px) { #homeSite .site-pick select { flex: none; min-height: 36px; } #homeSite .site-now { margin-top: 0; } }
+.au-i.wk .h a { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--ink); font-weight: 600; text-decoration: none; }
+.au-i.wk .h a:hover { color: var(--acc-t); text-decoration: underline; }
