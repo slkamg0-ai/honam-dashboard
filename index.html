@@ -116,6 +116,18 @@ html[data-theme=white] .thm{border-color:var(--pri)}
 html[data-theme=white] .thm button.on{background:var(--pri2);color:#fff}
 html[data-theme=white] .kpi,html[data-theme=white] .card{box-shadow:0 1px 0 rgba(29,31,32,.04)}
 html[data-theme=white] .asec{background:#f3f4f5}
+/* 현황판 통합 2026-11-14: PC 현황판 패널(월별 공사금액·개소별 공정표·개소 목록·착공 서류) + 넓은 화면 배치 */
+table.st{width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px}
+table.st th{background:rgba(29,31,32,.06);text-align:left;font-weight:500;padding:7px 9px;font-size:12.5px;border-bottom:1px solid var(--bd);white-space:nowrap}
+table.st td{padding:6px 9px;border-top:1px solid var(--bdl);vertical-align:middle;word-break:keep-all}
+table.st td.n,table.st th.n{text-align:right;font-variant-numeric:tabular-nums;font-family:Barlow,sans-serif}
+table.st tr.row{cursor:pointer}table.st tr.row:hover td{background:rgba(65,97,128,.07)}
+table.st tr.tot td{font-weight:500;border-top:2px solid var(--bd)}
+table.st .no{display:inline-flex;min-width:28px;height:24px;font-size:13.5px}
+.ls{list-style:none;padding:0}.ls li{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:8px 0;border-top:1px solid var(--bdl);font-size:14px}.ls li:first-child{border-top:0}
+@media(max-width:719px){.wideonly{display:none}}
+@media(min-width:720px){.two2{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:12px;align-items:start}}
+@media(min-width:1200px){.hrow,nav,main,#alerts,footer{max-width:1320px}#slist{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}#slist .sc{margin:0}}
 /* 화면 손질 2026-11-14: 모눈 배경 걷기(도면 꺾쇠만 남김), 원색 배지 → 점+글자, 지도 버튼·체크칸 조용히, 굵기 정리 */
 :root{--acc:#416180;--bad:#c4312c;--warn:#b26b00}
 html body{background-image:none}
@@ -151,7 +163,10 @@ header h1{font-weight:600;letter-spacing:0}
   <div class="card"><h2>계획 공정률 <small id="curlbl"></small></h2><div class="scroll"><svg id="scurve" viewBox="0 0 640 250" style="width:100%;min-width:480px;display:block"></svg></div><div class="note">공정표의 월별 기성 계획을 누계한 값입니다. 실적 입력 없이 계획과 오늘 기준 위치만 보여줍니다.</div></div>
   <div class="card"><h2>주요 일정</h2><ul class="ms" id="ms"></ul></div>
  </div>
- <div class="card"><h2>이번 달 시공 개소 <small id="mlbl"></small></h2><div id="mlist"></div></div>
+ <div class="two">
+  <div class="card"><h2>월별 공사금액 <small>단위 백만원 · 계약금액(부가세 포함)</small></h2><div class="scroll"><svg id="mchart" viewBox="0 0 720 250" style="width:100%;min-width:520px;display:block"></svg></div><div class="note" id="mnote"></div></div>
+  <div class="card"><h2>이번 달 시공 개소 <small id="mlbl"></small></h2><div id="mlist"></div></div>
+ </div>
  <div class="card"><h2>확인이 필요한 사항</h2>
   <div class="warn" id="w1"></div>
    <div class="warn" id="w2"></div>
@@ -162,17 +177,23 @@ header h1{font-weight:600;letter-spacing:0}
 <section id="permit" class="hide">
  <div class="kpis" id="pk"></div>
  <div class="chips" id="pchips"></div>
+ <div class="card"><h2>착공 서류 진행 <small>직접 기재 · 11.06 기준</small></h2><ul class="ls" id="docs"></ul></div>
  <div class="card"><h2>인허가·주요 일정 체크 <small id="pcnt"></small></h2><div id="plist"></div>
  <div class="note">체크 표시는 이 기기에만 저장되며 다른 기기에는 보이지 않습니다. 모두가 같은 상태를 보려면 Claude에게 "인허가 완료 처리"를 요청해 현황판을 갱신하세요. 날짜는 착공일 2026.11.02 가정 기준의 목표일입니다.</div></div>
 </section>
 <section id="gantt" class="hide">
  <div class="card"><h2>예정공정표 <small>조별 · 세로선은 오늘</small></h2><div style="display:flex"><div id="glab" style="flex:0 0 42px"></div><div class="scroll" style="flex:1"><svg id="gsvg"></svg></div></div>
  <div class="note">수로조는 수로·구조물(평일 야간), 격자조는 소규모격자블럭(토요일 포함 야간), F조는 곡성 27번(1차분 + 후속분), 가도는 공사용가도 설치·철거(주간 토공반)입니다. 막대의 숫자는 내역서 개소 번호입니다. 좌우로 밀어서 보세요. <span id="gver"></span></div></div>
+ <div class="card"><h2>개소별 공정표 <small>시공 시작 순서 · 누르면 개소 보기</small></h2><div class="scroll"><svg id="g2svg" style="display:block"></svg></div>
+  <div class="note">막대 옆 날짜는 시공 시작과 끝입니다. 수로·격자를 함께 하는 개소는 조별 구간을 따로 그리고(옅은 색이 격자조) 점선으로 잇습니다. 세로 주황선은 오늘, 검은선은 준공기한입니다.</div></div>
 </section>
 <section id="sites" class="hide">
  <div class="chips" id="chips"></div>
+<div class="two2">
  <div class="card"><h2>작업구간 약도 <small>점을 누르면 해당 개소로 이동</small></h2><div style="position:relative;max-width:520px;margin:0 auto"><svg id="msvg" viewBox="0 0 330 470" style="width:100%;display:block;touch-action:pan-y;user-select:none;-webkit-user-select:none"></svg><div style="position:absolute;right:8px;top:8px;display:flex;flex-direction:column;gap:6px"><button id="zin" class="zb">+</button><button id="zout" class="zb">−</button><button id="zrs" class="zb" style="font-size:12px">전체</button><span id="zlvl" style="font:700 12px Barlow,sans-serif;text-align:center;color:var(--pri2)"></span></div></div>
  <div id="legend" class="note" style="display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:8px"></div><div class="note">약도입니다. 숫자 원은 가까운 개소를 묶은 것으로, 누르면 확대되거나 부채꼴로 펼쳐집니다. 두 손가락으로 확대·이동할 수 있습니다. 지번이 확인된 개소는 지번 위치로, 나머지는 소재지(리·동) 중심으로 표시합니다. 카드에서 구분됩니다. 정확한 위치는 아래 지도 버튼으로 확인하세요.</div></div>
+ <div class="card wideonly"><h2>개소 목록 <small id="tlbl"></small></h2><div class="scroll" id="tw"></div><div class="note">금액은 내역서 개소별 직접공사비입니다. 행을 누르면 아래 개소 카드로 이동합니다.</div></div>
+</div>
  <div id="slist"></div>
 </section>
 </main>
@@ -199,7 +220,7 @@ function applyPlan(p){
  DATA.seg=(p.seg||[]).map(function(r){return[+r[0],planClean(r[1]),planClean(r[2]),r[3],r[4]]});
  var w=[];p.mon.forEach(function(m){var y=+m[0].slice(0,4),mo=+m[0].slice(5,7),e=new Date(y,mo,0),ds=e.getFullYear()+"-"+f2(e.getMonth()+1)+"-"+f2(e.getDate());if(ds>DATA.deadline)ds=DATA.deadline;w.push([ds,+m[2]])});
  if(w.length){w[w.length-1][1]=100;DATA.weekly=w}
- DATA.stop=null;DATA.planVer=planClean(p.version);DATA.planKey=planKeyOf(p)}
+ DATA.mon=p.mon.map(function(m){return[m[0],+m[1],+m[2]]});DATA.stop=null;DATA.planVer=planClean(p.version);DATA.planKey=planKeyOf(p)}
 (function(){var c=null;try{c=JSON.parse(localStorage.getItem(PLAN_KEY)||"null")}catch(e){}
  applyPlan(planOk(c)?c:PLAN0)})();
 
@@ -397,6 +418,45 @@ function row(s){var st=ST[status(s)];return "<div class='srow' onclick=\"gotoSit
  check();
  document.addEventListener("visibilitychange",function(){if(document.visibilityState==="visible"&&Date.now()-chk>300000)check()});
 })();
+// ---- (PC 현황판에서 옮김) 월별 공사금액·개소별 공정표·개소 목록·착공 서류
+var KVAT=7022417871/3869085735;var DOCS=[["스마트안전장비 구매 품의서 (호남-품의-2026-003)","완료","t-d"],["품질시험계획서","초안 · 확인 항목 있음","t-b"],["품질관리자·안전관리자 업무 서류 및 절차서","초안","t-b"],["안전관리계획서","미작성","t-p"],["27번 근접공사 관리계획서·위험성평가","미작성 · 우선","t-w"]];
+function stable(){var el=document.getElementById("tw");if(!el)return;var a=S.filter(function(s){return cur==="all"||s.grp===cur}).slice().sort(function(x,y){return x.no-y.no}),tot=a.reduce(function(m,s){return m+s.cost},0);
+ document.getElementById("tlbl").textContent=a.length+"개소";
+ var h="<table class='st'><thead><tr><th>번호</th><th>노선 · 위치</th><th>공종</th><th>투입조</th><th>시공(계획)</th><th class='n'>직접공사비(백만원)</th><th>상태</th></tr></thead><tbody>";
+ a.forEach(function(s){var st=ST[status(s)];h+="<tr class='row' data-no='"+s.no+"' tabindex='0'><td><span class='no' style='background:"+GC[s.grp]+"'>"+s.no+"</span></td><td>"+s.line+" "+s.km+"</td><td>"+s.work+"</td><td>"+crewT(s.crew)+"</td><td>"+fd(s.start)+" ~ "+fd(s.end)+"</td><td class='n'>"+(s.cost/1e6).toFixed(1)+"</td><td><span class='tag "+st[1]+"'>"+st[0]+"</span></td></tr>"});
+ h+="<tr class='tot'><td></td><td colspan='4'>합계</td><td class='n'>"+(tot/1e6).toFixed(1)+"</td><td></td></tr></tbody></table>";el.innerHTML=h;
+ Array.prototype.forEach.call(el.querySelectorAll("tr.row"),function(r){r.onclick=function(){gotoSite(+r.getAttribute("data-no"))};r.onkeydown=function(e){if(e.key==="Enter"||e.key===" "){e.preventDefault();gotoSite(+r.getAttribute("data-no"))}}})}
+(function(){var M=DATA.mon||[];if(!M.length)return;
+ var W=720,H=250,L=44,R=10,T=22,B=30,n=M.length,bw=(W-L-R)/n,vals=M.map(function(r){return r[1]*KVAT/1e6}),mx=Math.max(400,Math.ceil(Math.max.apply(null,vals)/400)*400);
+ function Y(v){return T+(1-v/mx)*(H-T-B)}var h="",cm=TODAY.getFullYear()+"-"+f2(TODAY.getMonth()+1);
+ for(var g=0;g<=mx;g+=mx/4)h+="<line x1='"+L+"' x2='"+(W-R)+"' y1='"+Y(g)+"' y2='"+Y(g)+"' stroke='rgba(29,31,32,.14)'/><text x='"+(L-6)+"' y='"+(Y(g)+4)+"' text-anchor='end' font-size='11.5' fill='rgba(29,31,32,.62)'>"+g+"</text>";
+ M.forEach(function(r,i){var v=vals[i],x=L+i*bw,y=Y(v);h+="<rect x='"+(x+4)+"' y='"+y+"' width='"+(bw-8)+"' height='"+(H-B-y)+"' fill='"+(r[0]===cm?"#e8590c":"#5980a6")+"'/>";
+  if(v>=40)h+="<text x='"+(x+bw/2)+"' y='"+(y-4)+"' text-anchor='middle' font-size='11' font-weight='600' fill='#1d1f20'>"+Math.round(v).toLocaleString("ko-KR")+"</text>";
+  h+="<text x='"+(x+bw/2)+"' y='"+(H-12)+"' text-anchor='middle' font-size='11' fill='rgba(29,31,32,.7)'>"+r[0].slice(2,4)+"."+r[0].slice(5,7)+"</text>"});
+ document.getElementById("mchart").innerHTML=h;
+ var pk=0;vals.forEach(function(v,i){if(v>vals[pk])pk=i});var y27=M.reduce(function(m,r,i){return r[0].slice(0,4)==="2027"?m+vals[i]:m},0);
+ document.getElementById("mnote").textContent="2027년 "+(y27/100).toFixed(1)+"억원, 가장 많은 달은 "+M[pk][0].replace("-",".")+" "+(vals[pk]/100).toFixed(1)+"억원입니다. 공정표의 월별 직접공사비 계획을 계약금액(부가세 포함) 비율로 환산한 값이고, 기성 청구 시점은 반영하지 않았습니다."})();
+(function(){
+ var parts={};(DATA.seg||[]).forEach(function(r){if(r[1]!=="가도")(parts[r[0]]=parts[r[0]]||[]).push(r)});
+ var O=S.slice().sort(function(a,b){return a.start<b.start?-1:a.start>b.start?1:a.no-b.no});
+ var rh=22,mw=44,nm=20,top=32,L=190,W=L+nm*mw+8,H=top+O.length*rh+10;
+ function X(d){var m=(d.getFullYear()-START.getFullYear())*12+d.getMonth()-START.getMonth();var dim=new Date(d.getFullYear(),d.getMonth()+1,0).getDate();return L+(m+(d.getDate()-1)/dim)*mw}
+ function md(x){return x.slice(5).replace("-","/").replace(/^0/,"")}
+ var h="";
+ for(var m=0;m<nm;m++){var d=new Date(START.getFullYear(),START.getMonth()+m,1);h+="<rect x='"+(L+m*mw)+"' y='"+top+"' width='"+mw+"' height='"+(H-top-8)+"' fill='"+(m%2?"rgba(29,31,32,.04)":"transparent")+"'/><text x='"+(L+m*mw+mw/2)+"' y='"+(top-9)+"' text-anchor='middle' font-size='11' fill='rgba(29,31,32,.68)'>"+String(d.getFullYear()).slice(2)+"."+f2(d.getMonth()+1)+"</text>"}
+ O.forEach(function(s,i){var y=top+i*rh,x1=X(D(s.start)),x2=X(D(s.end))+2,c=GC[s.grp],lab=md(s.start)+"–"+md(s.end),pp=(parts[s.no]||[]).slice().sort(function(a,b){return a[3]<b[3]?-1:1});
+  h+="<g data-no='"+s.no+"' style='cursor:pointer'><rect x='0' y='"+y+"' width='"+W+"' height='"+rh+"' fill='transparent'/><line x1='0' x2='"+W+"' y1='"+y+"' y2='"+y+"' stroke='rgba(29,31,32,.1)'/>";
+  h+="<rect x='0' y='"+(y+3)+"' width='24' height='"+(rh-6)+"' fill='"+c+"'/><text x='12' y='"+(y+rh/2+4)+"' text-anchor='middle' font-size='11.5' font-weight='600' fill='#fff'>"+s.no+"</text><text x='30' y='"+(y+rh/2+4)+"' font-size='11.5' fill='#1d1f20'>"+s.line+" "+s.km.split(" ")[0]+"</text>";
+  if(pp.length>1){h+="<line x1='"+x1+"' x2='"+x2+"' y1='"+(y+rh/2)+"' y2='"+(y+rh/2)+"' stroke='"+c+"' stroke-width='1.2' stroke-dasharray='2 3'/>";pp.forEach(function(q){var a=X(D(q[3])),b=X(D(q[4]))+2;h+="<rect x='"+a+"' y='"+(y+4)+"' width='"+Math.max(5,b-a)+"' height='"+(rh-8)+"' fill='"+c+"'"+(q[1]==="격자조"?" fill-opacity='.62'":"")+"><title>"+(q[1]==="F조"?q[2]:q[1])+" "+q[3]+"~"+q[4]+"</title></rect>"})}
+  else h+="<rect x='"+x1+"' y='"+(y+4)+"' width='"+Math.max(5,x2-x1)+"' height='"+(rh-8)+"' fill='"+c+"'/>";
+  var tw=lab.length*6.2;h+=(x2+tw+8<W)?"<text x='"+(x2+5)+"' y='"+(y+rh/2+4)+"' font-size='11' fill='rgba(29,31,32,.7)'>"+lab+"</text>":"<text x='"+(x1-5)+"' y='"+(y+rh/2+4)+"' text-anchor='end' font-size='11' fill='rgba(29,31,32,.7)'>"+lab+"</text>";
+  h+="</g>"});
+ var td=TODAY<START?START:(TODAY>DEAD?DEAD:TODAY),tx=X(td),dx=X(DEAD);
+ h+="<line x1='"+tx+"' x2='"+tx+"' y1='"+(top-2)+"' y2='"+(H-8)+"' stroke='#e8590c' stroke-width='2' stroke-dasharray='4 3'/><line x1='"+dx+"' x2='"+dx+"' y1='"+(top-2)+"' y2='"+(H-8)+"' stroke='#1d1f20' stroke-width='1.5'/>";
+ var sv=document.getElementById("g2svg");sv.setAttribute("viewBox","0 0 "+W+" "+H);sv.setAttribute("width",W);sv.setAttribute("height",H);sv.innerHTML=h;
+ Array.prototype.forEach.call(sv.querySelectorAll("g[data-no]"),function(g){g.onclick=function(){gotoSite(+g.getAttribute("data-no"))}});
+ var dl=document.getElementById("docs");if(dl)dl.innerHTML=DOCS.map(function(d){return "<li><span>"+d[0]+"</span><span class='tag "+d[2]+"'>"+d[1]+"</span></li>"}).join("");
+})();
 // ---- 개소·위치
 var cur="all",VB;
 var G=[["전체","all"],["북부","북부"],["장성","장성"],["광주","광주"],["순천·광양","순천·광양"],["곡성","곡성"]];
@@ -502,7 +562,7 @@ function drawMap(){
  document.getElementById("zrs").onclick=function(){resetView();redraw()};
 })();
 function links(s){var q=encodeURIComponent(s.addr);return{k:"https://map.kakao.com/link/map/"+encodeURIComponent("["+s.no+"번] "+s.line+" "+s.km)+","+s.lat+","+s.lon,n:"https://map.naver.com/p/search/"+q,g:"https://www.google.com/maps/search/?api=1&query="+s.lat+","+s.lon}}
-function slist(){var el=document.getElementById("slist");el.innerHTML="";
+function slist(){stable();var el=document.getElementById("slist");el.innerHTML="";
  S.filter(function(s){return cur==="all"||s.grp===cur}).forEach(function(s){var L=links(s),st=ST[status(s)],d=document.createElement("div");d.className="sc";d.id="c"+s.no;
  d.innerHTML="<div class='top'><div class='no' style='background:"+GC[s.grp]+"'>"+s.no+"</div><div style='flex:1'><div class='t' style='font-weight:700;font-size:15.5px'>"+s.line+" "+s.km+(s.no===27?"<span class='tag t-w'>1차+후속</span>":"")+"</div><div class='u' style='font-size:12.5px;color:var(--sub)'>"+s.work+"</div></div><span class='tag "+st[1]+"'>"+st[0]+"</span></div>"
   +"<div class='row'><b>소재지</b>"+s.addr+" <span style='font-size:11.5px;color:var(--sub);border:1px solid var(--bd);padding:0 5px;margin-left:4px'>"+(s.prec?"지번 위치":"마을 중심(대략)")+"</span></div><div class='row'><b>시공(계획)</b>"+(s.seg?"1차분 "+fd(s.seg[0][0])+" ~ "+fd(s.seg[0][1])+" (계약 준공 "+fd(DATA.p1End)+") / 후속분 "+fd(s.seg[1][0])+" ~ "+fd(s.seg[1][1]):fd(s.start)+" ~ "+fd(s.end))+" · "+crewT(s.crew)+"</div>"+(s.road?"<div class='row'><b>공사용가도</b>설치 "+fd(s.road[0][0])+" ~ "+fd(s.road[0][1])+" · 철거 "+fd(s.road[1][0])+" ~ "+fd(s.road[1][1])+" <span style='font-size:11.5px;color:var(--sub)'>(주간 토공반)</span></div>":"")
