@@ -177,3 +177,14 @@ a, .kv a { color: var(--acc-t); }
 @media (min-width: 1024px) { #homeSite .site-pick select { flex: none; min-height: 36px; } #homeSite .site-now { margin-top: 0; } }
 .au-i.wk .h a { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--ink); font-weight: 600; text-decoration: none; }
 .au-i.wk .h a:hover { color: var(--acc-t); text-decoration: underline; }
+
+/* 공정 현황판 바로가기 (2026-11-14) */
+.bar .menu a.mlink { display: block; text-align: left; color: var(--ink, #0f172a); text-decoration: none; font-size: 15px; font-weight: 500; padding: 12px; border-radius: 8px; }
+.bar .menu a.mlink:hover, .bar .menu a.mlink:focus-visible { background: #f1f5f9; }
+.nav .nvl { display: none; }
+@media (min-width: 1024px) {
+  .nav .nvl.desk { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; border-radius: 8px; color: var(--ink2, #475569); font-size: 14px; font-weight: 500; text-decoration: none; }
+  .nav .nvl svg { width: 18px; height: 18px; flex: none; stroke-width: 1.5; }
+  .nav .nvl:hover { background: #f1f5f9; }
+  .nav .nvl:focus-visible { outline: 2px solid var(--acc, #416180); }
+}

@@ -35,6 +35,7 @@ nav{display:flex;max-width:980px;margin:8px auto 0;gap:0}
 nav button{flex:1;min-height:44px;background:transparent;border:0;border-bottom:3px solid transparent;color:var(--hd2);font:600 14px Barlow,"Malgun Gothic",sans-serif;cursor:pointer}
 nav button.on{color:#fff;border-bottom-color:var(--pri)}
 main{max-width:980px;margin:0 auto;padding:12px}
+.erplink{color:inherit;opacity:.85;text-decoration:none;border-bottom:1px solid currentColor}.erplink:hover{opacity:1}
 .badge-plan{display:inline-block;font-size:11px;border:1px solid var(--pri);color:var(--pri2);padding:1px 6px;margin-left:6px;vertical-align:middle}
 .card{position:relative;background:var(--panel);border:1px solid var(--bd);padding:12px 14px;margin-bottom:12px}
 .card:before,.card:after{content:"";position:absolute;width:9px;height:9px;border:2px solid var(--pri)}
@@ -138,7 +139,7 @@ header h1{font-weight:600;letter-spacing:0}
 .warn{background:rgba(232,89,12,.05)}
 </style></head><body>
 <header><div class="hrow"><div><h1>호남고속선 재해예방공사 현황판<span class="badge-plan">계획안</span></h1>
-<div class="s">국가철도공단 · (주)동우건설 · 정읍~광주송정 등 26개 개소</div></div>
+<div class="s">국가철도공단 · (주)동우건설 · 정읍~광주송정 등 26개 개소 · <a class="erplink" href="erp2/" title="직원 로그인이 필요합니다">직원용 ERP ›</a></div></div>
 <div class="dday"><b id="dd">-</b><span id="ddl">준공기한까지</span><div class="thm" id="thm" role="group" aria-label="화면 배경"><button data-m="default" class="on">기본</button><button data-m="white">흰색</button></div></div></div>
 <nav id="nav"><button data-t="dash" class="on">현황</button><button data-t="gantt">공정표</button><button data-t="sites">개소·위치</button><button data-t="permit">인허가</button></nav></header>
 <div id="alerts"></div>
