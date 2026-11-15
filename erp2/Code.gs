@@ -78,7 +78,7 @@ function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.23' }; }
+function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.24' }; }
 
 function route_(req) {
   const t0 = Date.now();
@@ -135,6 +135,8 @@ function route_(req) {
       case 'importDraft': out = importDraft_(req); break;
       case 'discardDraft': out = discardDraft_(req); break;
       case 'listTasks': out = listTasks_(req); break;
+      case 'saveWeek': out = saveWeek_(req); break;
+      case 'delWeek': out = delWeek_(req); break;
       case 'saveTask': out = saveTask_(req); break;
       case 'doneTask': out = doneTask_(req); break;
       case 'reopenTask': out = reopenTask_(req); break;
@@ -1132,9 +1134,9 @@ function opsPlan_() { return planData_().plan; }
 // 공개 현황판용 공정 조회(GET ?action=plan, 로그인 없음). 공정 일정·조 구간·월별 보할만 내보낸다(직원·경비·문서 정보 없음).
 const SHEET_SEG = '공정구간', SHEET_MON = '공정보할';
 function publicPlan_() {
-  const cache = CacheService.getScriptCache(), key = 'publicPlan_v1';
+  const cache = CacheService.getScriptCache(), key = 'publicPlan_v2';
   try { const hit = cache.get(key); if (hit) return JSON.parse(hit); } catch (e) { /* 캐시 실패는 무시 */ }
-  const out = { ok: true, version: '', src: 'code', updated: new Date().toISOString(), sites: [], seg: [], mon: [], holidays: [] };
+  const out = { ok: true, version: '', src: 'code', updated: new Date().toISOString(), sites: [], seg: [], mon: [], holidays: [], week: [], board: [] };
   const pd = planData_();
   out.version = pd.version; out.src = pd.src; out.holidays = pd.holidays;
   try {
@@ -1161,6 +1163,14 @@ function publicPlan_() {
       });
       out.mon.sort(function (x, y) { return x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0; });
     }
+    // v2.24 「이번 주」: 주간계획 중 현황판=게시인 줄, 업무 지시 중 현황판게시 업무(제목·기한·상태만, 사람 이름 없음)
+    const today = nowStr_().slice(0, 10), lo = ymdAdd_(today, -35), hi = ymdAdd_(today, 70);
+    out.week = weekRows_(ss).filter(function (w) { return w.pub && w.end >= lo && w.start <= hi; })
+      .map(function (w) { return [w.start, w.end, w.kind, w.site, w.text]; });
+    const sht = ss.getSheetByName(SHEET_TASK);
+    if (sht) out.board = taskRows_(sht).filter(function (o) {
+      return o.board === 'Y' && (o.status === TST.OPEN || (o.status === TST.DONE && String(o.doneAt).slice(0, 10) >= ymdAdd_(today, -14)));
+    }).sort(taskOrder_).slice(0, 30).map(function (o) { return { title: o.title, due: o.due, urgent: o.urgent === 'Y', done: o.status === TST.DONE ? String(o.doneAt).slice(0, 10) : '' }; });
   } catch (e) { out.ok = false; out.error = 'SHEET'; }
   try { cache.put(key, JSON.stringify(out), 60); } catch (e) { /* 크기 초과 등은 무시 */ }
   return out;
@@ -2721,8 +2731,97 @@ function dashboard_(req) {
   // ⑥ 작업물 기록(Claude가 공정표·문서를 고칠 때마다 「작업물기록」 시트에 한 줄씩 남긴다) + 지금 쓰는 공정 기준
   const pd = planData_();
   const works = workRows_(ss).slice(-8).reverse();
+  const board = boardData_(ss, me, today, taskOpen);
   return { ok: true, today: today, role: me.role, todo: todo, month: month, prev: prev, sites: sites, siteSummary: sum, budget: budget, period: period, auto: auto,
-    works: works, plan: { version: pd.version, src: pd.src } };
+    works: works, plan: { version: pd.version, src: pd.src }, board: board };
+}
+
+
+// ═════════════════════════════ 주간계획 · 현장 게시판 (v2.24) ═════════════════════════════
+// 「주간계획」 시트: 공정표만으로는 안 보이는 이번 주 일(감독 입회·자재 반입·점검·회의 등)을 한 줄씩 적는다.
+// 현황판 열이 「게시」인 줄만 공개 현황판(로그인 없음)에 나가고, 나머지는 ERP 홈 「현장 게시판」에만 보인다.
+const SHEET_WEEK = '주간계획';
+const WEEK_HEADERS = ['ID', '날짜', '끝날짜', '구분', '개소', '내용', '현황판', '작성', '작성일시'];
+const WEEK_KINDS = ['공정', '점검·입회', '자재·장비', '회의·교육', '행정', '기타'];
+function ymdAdd_(ymd, n) { const p = String(ymd).split('-'); const d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2] + n)); return d.toISOString().slice(0, 10); }
+function ensureWeekSheet_(ss) {
+  let sh = ss.getSheetByName(SHEET_WEEK);
+  if (!sh) {
+    sh = ss.insertSheet(SHEET_WEEK);
+    sh.getRange(1, 1, sh.getMaxRows(), WEEK_HEADERS.length).setNumberFormat('@');
+    sh.getRange(1, 1, 1, WEEK_HEADERS.length).setValues([WEEK_HEADERS]);
+  }
+  return sh;
+}
+/** 시트를 직접 고쳐도 읽히게: 날짜가 올바른 줄만, 끝날짜가 없으면 하루짜리. 글자는 길이를 자르고 꺾쇠를 뺀다. */
+function weekRows_(ss) {
+  const sh = ss.getSheetByName(SHEET_WEEK);
+  if (!sh || sh.getLastRow() < 2) return [];
+  const clean = function (v, n) { return cellStr_(v).replace(/[<>]/g, '').replace(/\s+/g, ' ').slice(0, n); };
+  return sh.getRange(2, 1, sh.getLastRow() - 1, WEEK_HEADERS.length).getValues().map(function (r, i) {
+    const a = cellStr_(r[1]); let b = cellStr_(r[2]); if (!isYmd_(b) || b < a) b = a;
+    return { row: i + 2, id: cellStr_(r[0]), start: a, end: b, kind: clean(r[3], 10) || '기타', site: clean(r[4], 20), text: clean(r[5], 80),
+      pub: cellStr_(r[6]) === '게시', by: clean(r[7], 20), at: cellStr_(r[8]) };
+  }).filter(function (w) { return isYmd_(w.start) && w.text; })
+    .sort(function (x, y) { return x.start < y.start ? -1 : x.start > y.start ? 1 : x.row - y.row; });
+}
+function weekMonday_(ymd) { const p = ymd.split('-'); const d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2])); const k = (d.getUTCDay() + 6) % 7; return ymdAdd_(ymd, -k); }
+/** ERP 홈 「현장 게시판」: 이번 주·다음 주 주간계획(공개 여부 표시) + 전체 공개 업무(진행 중, 최근 7일 완료) */
+function boardData_(ss, me, today, taskOpen) {
+  const mon = weekMonday_(today), end = ymdAdd_(mon, 13);
+  const week = weekRows_(ss).filter(function (w) { return w.end >= mon && w.start <= end; })
+    .map(function (w) { return { id: w.id, start: w.start, end: w.end, kind: w.kind, site: w.site, text: w.text, pub: w.pub, by: w.by }; });
+  const shared = taskOpen.filter(function (o) { return o.share === 'Y'; }).sort(taskOrder_).slice(0, 20).map(function (o) { return taskPublic_(o, today); });
+  const recent = taskRows_(ensureTaskSheet_(ss)).filter(function (o) { return o.share === 'Y' && o.status === TST.DONE && String(o.doneAt).slice(0, 10) >= ymdAdd_(today, -7); })
+    .sort(function (a, b) { return a.doneAt < b.doneAt ? 1 : -1; }).slice(0, 10).map(function (o) { return taskPublic_(o, today); });
+  return { monday: mon, week: week, tasks: shared.concat(recent), canEdit: me.role === MANAGER_ROLE || me.role === '공무', kinds: WEEK_KINDS };
+}
+function saveWeek_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s;
+  if (me.role !== MANAGER_ROLE && me.role !== '공무') return fail_('FORBIDDEN', '주간계획은 현장소장과 공무만 적을 수 있습니다.');
+  const a = String(req.start || '').trim(), b0 = String(req.end || '').trim(), text = cleanText_(req.text, 80).replace(/[<>]/g, ''), site = cleanText_(req.site, 20).replace(/[<>]/g, '');
+  const kind = WEEK_KINDS.indexOf(String(req.kind)) >= 0 ? String(req.kind) : '기타';
+  if (!validDate_(a)) return fail_('INVALID', '날짜를 골라 주세요.');
+  const b = b0 ? b0 : a;
+  if (!validDate_(b) || b < a) return fail_('INVALID', '끝 날짜는 시작 날짜와 같거나 뒤여야 합니다.');
+  if (ymdAdd_(a, 31) < b) return fail_('INVALID', '한 줄은 31일까지만 적을 수 있습니다. 긴 일정은 공정표에 넣어 주세요.');
+  if (text.length < 2) return fail_('INVALID', '내용을 2자 이상 적어 주세요.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const sh = ensureWeekSheet_(getDb_());
+    const id = 'WK-' + a.slice(0, 4) + '-' + pad_(nextSeq_('WK:' + a.slice(0, 4)), 3);
+    const row = sh.getLastRow() + 1;
+    sh.getRange(row, 1, 1, WEEK_HEADERS.length).setNumberFormat('@');
+    sh.getRange(row, 1, 1, WEEK_HEADERS.length).setValues([[id, a, b === a ? '' : b, kind, site, text, req.pub ? '게시' : 'ERP만', me.name, nowStr_()]]);
+    audit_(me.id, '주간계획', id + ' / ' + a + (req.pub ? ' / 현황판게시' : ''));
+    try { CacheService.getScriptCache().remove('publicPlan_v2'); } catch (e) { /* 캐시는 60초 뒤 저절로 바뀜 */ }
+    return { ok: true, id: id };
+  } finally {
+    lock.releaseLock();
+  }
+}
+function delWeek_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s;
+  if (me.role !== MANAGER_ROLE && me.role !== '공무') return fail_('FORBIDDEN', '주간계획은 현장소장과 공무만 지울 수 있습니다.');
+  const id = String(req.id || '').trim();
+  if (!/^WK-\d{4}-\d{3,}$/.test(id)) return fail_('INVALID', '지울 줄을 찾지 못했습니다. (ERP에서 적은 줄만 여기서 지울 수 있습니다.)');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const ss = getDb_(), sh = ss.getSheetByName(SHEET_WEEK);
+    const w = sh ? weekRows_(ss).filter(function (x) { return x.id === id; })[0] : null;
+    if (!w) return fail_('NOT_FOUND', '이미 지워졌거나 없는 줄입니다.');
+    if (me.role !== MANAGER_ROLE && w.by !== me.name) return fail_('FORBIDDEN', '적은 사람 또는 현장소장만 지울 수 있습니다.');
+    sh.deleteRow(w.row);
+    audit_(me.id, '주간계획삭제', id + ' / ' + w.start + ' / ' + w.text.slice(0, 30));
+    try { CacheService.getScriptCache().remove('publicPlan_v2'); } catch (e) { /* 무시 */ }
+    return { ok: true };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 
@@ -2731,13 +2830,18 @@ function dashboard_(req) {
 const SHEET_TASK = '업무지시';
 const TST = { OPEN: '진행', DONE: '완료', CANCEL: '취소' };
 const TASK_FIELDS = [['id', 'ID'], ['title', '제목'], ['memo', '내용'], ['toId', '담당자ID'], ['to', '담당자'], ['due', '기한'], ['urgent', '긴급'], ['status', '상태'],
-  ['byId', '지시자ID'], ['by', '지시자'], ['created', '지시일시'], ['doneBy', '완료자'], ['doneAt', '완료일시'], ['doneMemo', '완료메모'], ['reason', '취소사유'], ['updated', '수정일시']];
+  ['byId', '지시자ID'], ['by', '지시자'], ['created', '지시일시'], ['doneBy', '완료자'], ['doneAt', '완료일시'], ['doneMemo', '완료메모'], ['reason', '취소사유'], ['updated', '수정일시'],
+  ['share', '전체공개'], ['board', '현황판게시']]; // v2.24: 전체공개=직원 모두 보기, 현황판게시=공개 현황판에 제목·기한만
 const TASK_HEADERS = TASK_FIELDS.map(function (f) { return f[1]; });
 
 function ensureTaskSheet_(ss) {
   let sh = ss.getSheetByName(SHEET_TASK);
   if (!sh) {
     sh = ss.insertSheet(SHEET_TASK);
+    sh.getRange(1, 1, sh.getMaxRows(), TASK_HEADERS.length).setNumberFormat('@');
+    sh.getRange(1, 1, 1, TASK_HEADERS.length).setValues([TASK_HEADERS]);
+  } else if (sh.getLastColumn() < TASK_HEADERS.length) { // 옛 시트: 뒤에 새 열 머리만 덧붙인다(기존 행은 그대로)
+    if (sh.getMaxColumns() < TASK_HEADERS.length) sh.insertColumnsAfter(sh.getMaxColumns(), TASK_HEADERS.length - sh.getMaxColumns());
     sh.getRange(1, 1, sh.getMaxRows(), TASK_HEADERS.length).setNumberFormat('@');
     sh.getRange(1, 1, 1, TASK_HEADERS.length).setValues([TASK_HEADERS]);
   }
@@ -2779,7 +2883,8 @@ function taskOrder_(a, b) {
 function taskPublic_(o, today) {
   const open = o.status === TST.OPEN;
   return { id: o.id, title: o.title, memo: o.memo, toId: o.toId, to: o.to, due: o.due, urgent: o.urgent === 'Y', status: o.status, byId: o.byId, by: o.by, created: o.created,
-    doneBy: o.doneBy, doneAt: o.doneAt, doneMemo: o.doneMemo, daysLeft: open && o.due ? dashDays_(today, o.due) : null };
+    doneBy: o.doneBy, doneAt: o.doneAt, doneMemo: o.doneMemo, daysLeft: open && o.due ? dashDays_(today, o.due) : null,
+    share: o.share === 'Y', board: o.board === 'Y' };
 }
 
 function taskTodo_(o, today) {
@@ -2799,7 +2904,7 @@ function listTasks_(req) {
   const g = expAuth_(req); if (g.err) return g.err;
   const me = g.s, isMgr = me.role === MANAGER_ROLE, isGm = isMgr || me.role === '공무';
   const today = nowStr_().slice(0, 10);
-  const rows = taskRows_(ensureTaskSheet_(getDb_())).filter(function (o) { return o.status !== TST.CANCEL && (isMgr || o.toId === me.id || o.byId === me.id); });
+  const rows = taskRows_(ensureTaskSheet_(getDb_())).filter(function (o) { return o.status !== TST.CANCEL && (isMgr || o.toId === me.id || o.byId === me.id || o.share === 'Y'); });
   const open = rows.filter(function (o) { return o.status === TST.OPEN; }).sort(taskOrder_);
   const done = rows.filter(function (o) { return o.status === TST.DONE; }).sort(function (a, b) { return a.doneAt < b.doneAt ? 1 : a.doneAt > b.doneAt ? -1 : 0; }).slice(0, 100);
   let staff = [];
@@ -2832,9 +2937,10 @@ function saveTask_(req) {
     if (due && due < today && (!o || o.due !== due)) return fail_('INVALID', '기한은 오늘 이후 날짜로 정해 주세요.');
     if (!o) o = { id: 'TSK-' + today.slice(0, 4) + '-' + pad_(nextSeq_('TSK:' + today.slice(0, 4)), 3), status: TST.OPEN, byId: me.id, by: me.name, created: nowStr_(), doneBy: '', doneAt: '', doneMemo: '', reason: '' };
     o.title = title; o.memo = memo; o.toId = String(u.row[COL.id]); o.to = String(u.row[COL.name]); o.due = due; o.urgent = req.urgent ? 'Y' : '';
+    o.board = req.board ? 'Y' : ''; o.share = (req.share || req.board) ? 'Y' : ''; // 현황판에 거는 업무는 직원에게도 공개
     const isNew = !o._row;
     taskWrite_(sh, o, o._row);
-    audit_(me.id, isNew ? '업무지시' : '업무수정', o.id + ' / ' + o.to + (o.due ? ' / ~' + o.due : ''));
+    audit_(me.id, isNew ? '업무지시' : '업무수정', o.id + ' / ' + o.to + (o.due ? ' / ~' + o.due : '') + (o.board ? ' / 현황판게시' : o.share ? ' / 전체공개' : ''));
     return { ok: true, item: taskPublic_(o, today) };
   } finally {
     lock.releaseLock();

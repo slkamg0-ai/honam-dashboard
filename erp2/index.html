@@ -91,6 +91,13 @@
   .tk .dd { flex: none; font-size: 11.5px; font-weight: 800; padding: 3px 8px; border-radius: 10px; background: #e2e8f0; color: #334155; white-space: nowrap; }
   .tk.late .dd { background: #dc2626; color: #fff; } .tk.soon .dd { background: #f59e0b; color: #fff; } .tk.done .dd { background: #dcfce7; color: #166534; }
   .tk .mt { font-size: 12px; color: #64748b; margin-top: 3px; } .tk .bd { font-size: 13px; margin-top: 6px; white-space: pre-wrap; word-break: break-all; }
+  .bd-sec { margin: 4px 0 12px; } .bd-h { font-size: 12.5px; font-weight: 700; color: #64748b; margin: 0 0 6px; }
+  .bdw { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px solid #eef2f6; font-size: 14px; }
+  .bdw:first-child { border-top: 0; } .bdw .dt { flex: 0 0 74px; font-weight: 700; font-variant-numeric: tabular-nums; color: #334155; }
+  .bdw .tx { flex: 1; min-width: 0; word-break: keep-all; overflow-wrap: anywhere; } .bdw .tx small { display: block; color: #64748b; font-size: 12px; margin-top: 2px; }
+  .bdw.today .dt { color: #c2410c; } .bdw button { flex: none; font-size: 12px; padding: 3px 8px; }
+  .bdpub { display: inline-block; font-size: 11px; font-weight: 700; border: 1px solid #94a3b8; color: #475569; border-radius: 4px; padding: 0 5px; margin-left: 6px; vertical-align: 1px; }
+  .tk .shr { display: inline-block; font-size: 10.5px; font-weight: 700; border: 1px solid #94a3b8; color: #475569; border-radius: 6px; padding: 0 5px; margin-right: 5px; vertical-align: 1px; }
   .tk .urg { display: inline-block; background: #dc2626; color: #fff; font-size: 10.5px; font-weight: 800; border-radius: 6px; padding: 1px 6px; margin-right: 5px; vertical-align: 1px; }
   .tk .tkb { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; } .tk .tkb button { flex: none; min-width: 0; padding: 6px 12px; font-size: 12.5px; }
   .jlock { display: inline-block; font-size: 10.5px; font-weight: 800; padding: 1px 7px; border-radius: 9px; background: #ede9fe; color: #5b21b6; vertical-align: 2px; }
@@ -371,6 +378,29 @@
         <div class="msg" id="dbMsg"></div>
         <div id="dbTodo"></div>
       </div>
+      <div class="panel hide" id="dbBoard">
+        <h3>현장 게시판 <span class="dbdate" id="bdWeekLbl"></span></h3>
+        <div class="bd-sec"><div class="bd-h">이번 주 계획</div><div id="bdWeek"></div></div>
+        <div class="bd-sec"><div class="bd-h">공유 업무</div><div id="bdTasks"></div></div>
+        <div id="bdAddBox" class="hide">
+          <button type="button" class="sm" id="bdAddOpen">+ 주간계획 적기</button>
+          <div id="bdForm" class="hide">
+            <div class="grid2">
+              <div><label for="bdStart">날짜</label><input type="date" id="bdStart"></div>
+              <div><label for="bdEnd">끝 날짜 <small style="font-weight:500;color:#64748b">(여러 날이면)</small></label><input type="date" id="bdEnd"></div>
+            </div>
+            <div class="grid2">
+              <div><label for="bdKind">구분</label><select id="bdKind"></select></div>
+              <div><label for="bdSite">개소 <small style="font-weight:500;color:#64748b">(선택)</small></label><input type="text" id="bdSite" maxlength="20" placeholder="예: 27"></div>
+            </div>
+            <label for="bdText">내용</label><input type="text" id="bdText" maxlength="80" autocomplete="off" placeholder="예: 감독관 입회 검측(오전)">
+            <label class="chk"><input type="checkbox" id="bdPub"> 공정 현황판에도 게시 <small style="font-weight:500;color:#64748b">차단 시간·작업 위치(km)·이름·연락처는 적지 마세요</small></label>
+            <div class="row-btns"><button type="button" id="bdCancel">닫기</button><button type="button" class="pri" id="bdSave" style="margin-top:0">저장</button></div>
+          </div>
+        </div>
+        <div class="msg" id="bdMsg"></div>
+        <div class="dbnote"><a href="../#week" target="_blank" rel="noopener">공정 현황판 「이번 주」 ↗</a> · 조별 작업은 공정표에서 자동으로 채워집니다.</div>
+      </div>
       <div class="panel hide" id="dbMonth"><h3><span id="dbMonthTitle">이번 달</span> <span class="dbpill" id="dbMonthState"></span></h3><div id="dbMonthBody"></div></div>
       <div class="panel hide" id="dbWorks"><h3>최근 작업물 <span class="dbdate" id="dbWorksN"></span></h3><div id="dbWorksBody"></div></div>
       <div class="panel hide" id="dbAuto"><h3>자동처리 기록 <span class="dbpill" id="dbAutoN"></span></h3><div id="dbAutoBody"></div></div>
@@ -527,6 +557,8 @@
             <div><label for="tDue">기한 <small style="font-weight:500;color:#64748b">(선택)</small></label><input type="date" id="tDue"></div>
           </div>
           <label class="chk"><input type="checkbox" id="tUrgent"> 긴급 업무로 표시</label>
+          <label class="chk"><input type="checkbox" id="tShare"> 전체 공개 <small style="font-weight:500;color:#64748b">직원 모두가 홈 「현장 게시판」에서 봅니다</small></label>
+          <label class="chk"><input type="checkbox" id="tBoard"> 공정 현황판에도 게시 <small style="font-weight:500;color:#64748b">로그인 없는 화면이라 제목·기한만 나갑니다</small></label>
           <div class="row-btns"><button type="button" id="tCancel">취소</button><button type="button" class="pri" id="tSave" style="margin-top:0">저장</button></div>
           <div class="msg" id="tFMsg"></div>
         </div>
@@ -923,6 +955,7 @@
 <script src="org.js"></script>
 <script src="stamp.js"></script>
 <script src="dash.js"></script>
+<script src="board.js"></script>
 <script src="nav.js"></script>
 </body>
 </html>

@@ -50,7 +50,7 @@
     var box = $('tFilters'); box.textContent = '';
     var list = [['mine', '내가 할 일']];
     if (R && R.canAssign) list.push(['out', '내가 지시한 것'], ['all', '진행 중 전체']);
-    list.push(['done', '완료']);
+    list.push(['share', '공개 업무'], ['done', '완료']);
     list.forEach(function (f) {
       var b = el('button', filter === f[0] ? 'sel' : '', f[1]); b.type = 'button';
       b.onclick = function () { filter = f[0]; render(); };
@@ -80,6 +80,7 @@
     var open = items.filter(function (t) { return t.status === '진행'; });
     if (filter === 'mine') return open.filter(function (t) { return t.toId === me; });
     if (filter === 'out') return open.filter(function (t) { return t.byId === me; });
+    if (filter === 'share') return open.filter(function (t) { return t.share; });
     return open;
   }
 
@@ -91,7 +92,7 @@
     var late = list.filter(function (t) { return tone(t) === 'late'; }).length;
     sum.textContent = (filter === 'done' ? '완료 ' : '진행 중 ') + list.length + '건' + (late ? ' · 기한 지남 ' + late + '건' : '');
     if (!list.length) {
-      box.appendChild(el('div', 'desc', filter === 'done' ? '완료된 업무가 없습니다.' : filter === 'mine' ? '지금 맡은 업무가 없습니다.' : '진행 중인 업무가 없습니다.'));
+      box.appendChild(el('div', 'desc', filter === 'done' ? '완료된 업무가 없습니다.' : filter === 'mine' ? '지금 맡은 업무가 없습니다.' : filter === 'share' ? '공개된 업무가 없습니다.' : '진행 중인 업무가 없습니다.'));
       return;
     }
     list.forEach(function (t) { box.appendChild(card(t)); });
@@ -101,6 +102,7 @@
     var c = el('div', 'tk ' + tone(t)); c.setAttribute('data-id', t.id);
     var t1 = el('div', 't1'), tt = el('div', 'tt');
     if (t.urgent) tt.appendChild(el('span', 'urg', '긴급'));
+    if (t.board) tt.appendChild(el('span', 'shr', '현황판')); else if (t.share) tt.appendChild(el('span', 'shr', '공개'));
     tt.appendChild(document.createTextNode(t.title)); t1.appendChild(tt); t1.appendChild(el('span', 'dd', dueText(t))); c.appendChild(t1);
     c.appendChild(el('div', 'mt', '담당 ' + t.to + ' · 지시 ' + t.by + ' ' + mmdd(t.created).slice(0, 5) + (t.due ? ' · 기한 ' + mmdd(t.due) : '')));
     if (t.memo) c.appendChild(el('div', 'bd', t.memo));
@@ -152,9 +154,12 @@
     var ph = el('option', '', '담당자를 선택하세요'); ph.value = ''; sel.appendChild(ph);
     R.staff.forEach(function (s) { var o = el('option', '', s.name + ' (' + (s.title || s.role) + (s.duty ? ' · ' + s.duty.replace(/, /g, '·') : '') + ')'); o.value = s.id; if (t && t.toId === s.id) o.selected = true; sel.appendChild(o); });
     $('tDue').value = t ? t.due : ''; $('tDue').min = R.today; $('tUrgent').checked = !!(t && t.urgent);
+    $('tShare').checked = !!(t && (t.share || t.board)); $('tBoard').checked = !!(t && t.board); $('tShare').disabled = $('tBoard').checked;
     setMsg('tFMsg', ''); pane('form'); $('tTitle').focus();
   }
   $('tNew').onclick = function () { openForm(null); };
+  // 현황판에 거는 업무는 직원에게도 공개된다(서버도 같은 규칙)
+  $('tBoard').onchange = function () { if ($('tBoard').checked) $('tShare').checked = true; $('tShare').disabled = $('tBoard').checked; };
   $('tCancel').onclick = function () { pane('list'); };
   $('tSave').onclick = function () {
     if (busy) return;
@@ -164,7 +169,7 @@
     var orig = editId && R ? R.items.filter(function (x) { return x.id === editId; })[0] : null;
     if (due && due < R.today && (!orig || orig.due !== due)) { setMsg('tFMsg', '기한은 오늘 이후 날짜로 정해 주세요.'); return; }
     busy = true; $('tSave').disabled = true; setMsg('tFMsg', '저장하는 중…', true);
-    E.api('saveTask', { id: editId || undefined, title: title, memo: $('tMemo').value, toId: to, due: due, urgent: $('tUrgent').checked }, 30000).then(function (r) {
+    E.api('saveTask', { id: editId || undefined, title: title, memo: $('tMemo').value, toId: to, due: due, urgent: $('tUrgent').checked, share: $('tShare').checked || $('tBoard').checked, board: $('tBoard').checked }, 30000).then(function (r) {
       busy = false; $('tSave').disabled = false;
       if (E.authLost(r)) return;
       if (!r.ok) { setMsg('tFMsg', r.message || '저장하지 못했습니다.'); return; }
