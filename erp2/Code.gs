@@ -78,7 +78,7 @@ function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.24' }; }
+function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.25' }; }
 
 function route_(req) {
   const t0 = Date.now();
@@ -2118,8 +2118,9 @@ function listDocs_(req) {
 // 자동처리(예약 작업)는 번호를 발급하지 않고 「초안함」 시트에 줄만 적는다. 공무·현장소장이 화면에서 「문서로 만들기」를 눌러야
 // 정식 문서(번호 발급·폴더·서식)가 생기고, 만든 사람이 작성자가 된다. 번호는 ERP 한 곳에서만 발급된다.
 const SHEET_DRAFT = '초안함';
-const DRAFT_HEADERS = ['초안ID', '구분', '문서구분', '일자', '수신·발신처', '제목', '집행금액', '본문', '붙임', '참조', '비고', '회신기한', '등록일시', '상태', '문서번호', '처리자', '첨부파일ID'];
+const DRAFT_HEADERS = ['초안ID', '구분', '문서구분', '일자', '수신·발신처', '제목', '집행금액', '본문', '붙임', '참조', '비고', '회신기한', '등록일시', '상태', '문서번호', '처리자', '첨부파일ID', '폴더ID'];
 // 첨부파일ID: 자동처리가 드라이브에 저장해 둔 원본(PDF 등)의 파일 ID. 쉼표로 여러 개. 「문서로 만들기」 때 문서 폴더로 복사해 붙임 파일로 단다.
+// 폴더ID: 발신 폴더(연-월 아래)에 이미 만들어 둔 문서 세트 폴더. 있으면 새 폴더·서식을 만들지 않고 그 폴더를 문서 폴더로 연결하며, 안의 파일을 복사 없이 붙임으로 등록한다(v2.25).
 function ensureDraftSheet_(ss) {
   let sh = ss.getSheetByName(SHEET_DRAFT);
   if (!sh) {
@@ -2139,7 +2140,8 @@ function draftRows_(sh) {
     r = r.map(tx);
     return { _row: k + 2, id: String(r[0]), kind: String(r[1]), cat: String(r[2]), date: String(r[3]).slice(0, 10), party: String(r[4]), title: String(r[5]), amount: String(r[6]),
       summary: String(r[7]), attach: String(r[8]), ref: String(r[9]), note: String(r[10]), due: String(r[11]).slice(0, 10), created: String(r[12]), state: String(r[13]), docNo: String(r[14]), by: String(r[15]),
-      fileIds: String(r[16] || '').split(/[,\s]+/).filter(function (x) { return /^[\w-]{10,}$/.test(x); }) };
+      fileIds: String(r[16] || '').split(/[,\s]+/).filter(function (x) { return /^[\w-]{10,}$/.test(x); }),
+      folderId: /^[\w-]{10,}$/.test(String(r[17] || '').trim()) ? String(r[17]).trim() : '' };
   }).filter(function (d) { return d.id; });
 }
 function draftGuard_(req) {
@@ -2147,12 +2149,68 @@ function draftGuard_(req) {
   if (g.s.role !== MANAGER_ROLE && g.s.role !== '공무') return { err: fail_('FORBIDDEN', '공무·현장소장만 자동 초안을 다룰 수 있습니다.') };
   return g;
 }
-function draftPublic_(d) { return { id: d.id, kind: d.kind, cat: d.cat, date: d.date, party: d.party, title: d.title, amount: d.amount, summary: d.summary, attach: d.attach, due: d.due, created: d.created, files: (d.fileIds || []).length }; }
+function draftPublic_(d) { return { id: d.id, kind: d.kind, cat: d.cat, date: d.date, party: d.party, title: d.title, amount: d.amount, summary: d.summary, attach: d.attach, due: d.due, created: d.created, files: (d.fileIds || []).length, folder: !!d.folderId }; }
 
 function listDrafts_(req) {
   const g = draftGuard_(req); if (g.err) return g.err;
   const rows = draftRows_(ensureDraftSheet_(getDb_())).filter(function (d) { return d.state === '대기'; });
   return { ok: true, items: rows.map(draftPublic_) };
+}
+
+// ───────── 기존 폴더 연결 (v2.25) ─────────
+// 발신 폴더에 먼저 만들어 둔 공문·품의 세트(hwpx 본문 + 붙임 파일)를 다시 입력하지 않고 ERP 문서로 등록한다.
+// 화면에서 넘어온 요청으로는 쓸 수 없고, importDraft_ 가 이 키를 붙여 부를 때만 동작한다.
+const ADOPT_KEY_ = 'adopt-' + Utilities.getUuid();
+/** 연결할 폴더가 발신 폴더 아래(발신/연-월/폴더)에 있고 휴지통에 없는지 확인한다. */
+function adoptFolderCheck_(fid) {
+  let f;
+  try { f = DriveApp.getFolderById(fid); } catch (e) { return { err: fail_('NOT_FOUND', '연결할 폴더를 찾지 못했습니다.') }; }
+  if (f.isTrashed()) return { err: fail_('STATE', '연결할 폴더가 휴지통에 있습니다.') };
+  let inside = false;
+  const p1 = f.getParents();
+  while (p1.hasNext() && !inside) {
+    const ym = p1.next();
+    if (ym.getId() === DOC_SEND_ROOT) inside = true;
+    const p2 = ym.getParents();
+    while (p2.hasNext()) if (p2.next().getId() === DOC_SEND_ROOT) inside = true;
+  }
+  if (!inside) return { err: fail_('FORBIDDEN', '발신 폴더 아래에 있는 폴더만 연결할 수 있습니다.') };
+  return { folder: f };
+}
+/** 폴더를 문서 폴더로 연결: 이름을 「번호_제목」으로 맞추고, 본문 파일은 문서 링크로, 나머지 파일은 붙임으로 등록한다(복사하지 않음). 하위 폴더(_구버전 등)는 건너뛴다. */
+function docAdoptFolder_(o, folder, by) {
+  const warn = [];
+  const name = o.docNo + '_' + safeName_(o.title);
+  o.folderId = folder.getId();
+  const oldName = folder.getName();
+  const m0 = oldName.match(/^호남-(품의|공문|접수)-\d{4}-\d{3}/);
+  if (m0 && m0[0] !== o.docNo) warn.push('폴더 이름의 번호(' + m0[0] + ')가 발급 번호(' + o.docNo + ')와 달라 이름을 바꿨습니다. 본문 파일 안의 문서번호도 고쳐 주세요.');
+  if (oldName !== name) { try { folder.setName(name); } catch (e) { warn.push('폴더 이름을 바꾸지 못했습니다.'); } }
+  const list = [];
+  const it = folder.getFiles();
+  while (it.hasNext()) { const f = it.next(); if (!f.isTrashed()) list.push(f); }
+  list.sort(function (a, b) { return a.getName() < b.getName() ? -1 : a.getName() > b.getName() ? 1 : 0; });
+  // 본문: 이름이 「붙임·첨부」로 시작하지 않는 한글·워드·구글문서 파일 중 첫 번째
+  const isMain = function (f) { const n = f.getName(); return !/^(붙임|첨부)/.test(n) && (/\.(hwpx|hwp|docx?)$/i.test(n) || f.getMimeType() === MimeType.GOOGLE_DOCS); };
+  const main = list.filter(isMain)[0];
+  if (main) {
+    const mn = main.getName();
+    const m1 = mn.match(/^호남-(품의|공문)-\d{4}-\d{3}/);
+    if (m1 && m1[0] !== o.docNo) { try { main.setName(mn.replace(m1[0], o.docNo)); } catch (e) { /* 이름은 그대로 둔다 */ } }
+    if (main.getMimeType() === MimeType.GOOGLE_DOCS) { o.docId = main.getId(); o.link = docUrl_(o.docId); }
+    else { o.docId = ''; o.link = 'https://drive.google.com/file/d/' + main.getId() + '/view'; }
+  } else warn.push('본문 파일(hwpx·hwp·docx)을 찾지 못해 문서 링크는 비워 두었습니다.');
+  const files = [];
+  list.forEach(function (f) {
+    if (main && f.getId() === main.getId()) return;
+    if (files.length >= MAX_DOC_FILES) { warn.push('붙임 파일이 ' + MAX_DOC_FILES + '개를 넘어 「' + f.getName() + '」을(를) 건너뛰었습니다.'); return; }
+    const size = f.getSize();
+    if (!size || size > MAX_DOC_FILE_BYTES || f.getMimeType().indexOf('application/vnd.google-apps') === 0) { warn.push('「' + f.getName() + '」은(는) 비었거나 8MB를 넘거나 구글 문서라 붙임 등록에서 뺐습니다(폴더에는 그대로 있음).'); return; }
+    let bytes; try { bytes = f.getBlob().getBytes(); } catch (e) { warn.push('「' + f.getName() + '」을(를) 읽지 못했습니다.'); return; }
+    files.push({ n: files.length + 1, fid: f.getId(), name: f.getName(), size: bytes.length, sha: sha256Hex_(bytes), by: by, at: nowStr_() });
+  });
+  o.files = JSON.stringify(files);
+  return warn;
 }
 
 /** 초안 → 정식 문서(작성중). saveDoc_ 와 같은 검증·번호·폴더 절차를 그대로 쓴다. */
@@ -2170,6 +2228,8 @@ function importDraft_(req) {
     sh.getRange(d._row, 14).setValue('처리중');
   } finally { lock.releaseLock(); }
   const body = { token: req.token, kind: d.kind, cat: d.cat, date: d.date || undefined, party: d.party, title: d.title, amount: d.amount, summary: d.summary, attach: d.attach, ref: d.ref, note: d.note, due: d.due || undefined };
+  if (d.folderId) body._adoptFolder = d.folderId; // 서버 안에서만 넘긴다(화면 요청의 같은 이름 값은 saveDoc_ 가 무시)
+  if (body._adoptFolder) body._internal = ADOPT_KEY_;
   let r;
   try { r = saveDoc_(body); } catch (e) { r = fail_('SERVER', '문서를 만들지 못했습니다.'); }
   if (!r || !r.ok) { sh.getRange(d._row, 14).setValue('대기'); return r; }
@@ -2261,9 +2321,16 @@ function saveDoc_(req) {
       replied: '', link: '', docId: '', folderId: '', pdf: '', reviewer: '', reviewedAt: '', approver: '', approvedAt: '', reason: '',
       hq: '', hqBy: '', hqAt: '', hqSubmitAt: '', hqNote: '', authorId: me.id, author: me.name, created: nowStr_() };
     ['date', 'title', 'party', 'ref', 'summary', 'attach', 'note', 'due', 'cat', 'amount'].forEach(function (k) { o[k] = v[k]; });
-    const warn = docMakeFiles_(o);
+    let warn;
+    if (req._adoptFolder && req._internal === ADOPT_KEY_) {
+      if (kind === '접수') return fail_('PARAM', '받은 문서는 폴더 연결을 쓰지 않습니다.');
+      const used = docRows_(sh).filter(function (x) { return x.folderId === req._adoptFolder && x.status !== DST.VOID; })[0];
+      if (used) return fail_('STATE', '이 폴더는 이미 ' + used.docNo + ' 문서에 연결되어 있습니다.');
+      const chkF = adoptFolderCheck_(req._adoptFolder); if (chkF.err) return chkF.err;
+      warn = docAdoptFolder_(o, chkF.folder, me.name);
+    } else warn = docMakeFiles_(o);
     docWrite_(sh, o);
-    audit_(me.id, '문서작성', o.docNo + ' ' + o.title);
+    audit_(me.id, '문서작성', o.docNo + ' ' + o.title + (o.folderId && req._adoptFolder ? ' (기존 폴더 연결)' : ''));
     return { ok: true, item: docPublic_(o), warn: warn };
   } finally {
     lock.releaseLock();
