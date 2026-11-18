@@ -78,7 +78,7 @@ function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.25' }; }
+function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.26' }; }
 
 function route_(req) {
   const t0 = Date.now();
@@ -147,6 +147,8 @@ function route_(req) {
       case 'getJournal': out = getJournal_(req); break;
       case 'saveJournal': out = saveJournal_(req); break;
       case 'deleteJournal': out = deleteJournal_(req); break;
+      case 'siteInfo': out = siteInfo_(req); break;
+      case 'siteDrawing': out = siteDrawing_(req); break;
       default: out = fail_('UNKNOWN_ACTION', '알 수 없는 요청입니다.');
     }
   } catch (err) {
@@ -3290,4 +3292,71 @@ function deleteJournal_(req) {
   } finally {
     lock.releaseLock();
   }
+}
+
+// ───────────────────────────── 공구 자료(개소별 착공내역·설계도면) v2.26 ─────────────────────────────
+// 착공내역서(총괄분)의 개소별 내역과 설계도면 이미지를 로그인한 직원에게만 보여 준다(역할 무관, 읽기 전용).
+// 자료: 드라이브 폴더 「01_계약·설계도서\공구별도면_ERP」의 site_boq.json · site_dwg.json · 도면 JPG(192매).
+// 공유 링크는 만들지 않는다. 서버가 대신 읽어 base64로 보낸다. 자료를 고치면 같은 이름으로 덮어쓰고 캐시(6시간)가 지나면 반영된다.
+const SITE_DOC_ROOT = '1kG9dsiNszKCD6U62u_2TtebB4ndr9-YI';
+const SITE_DOC_TTL = 21600;
+const SITE_DOC_VER = 'v1';
+
+function siteFolder_() { return DriveApp.getFolderById(SITE_DOC_ROOT); }
+function siteReadJson_(folder, name) {
+  const it = folder.getFilesByName(name);
+  if (!it.hasNext()) return null;
+  return JSON.parse(it.next().getBlob().getDataAsString('UTF-8'));
+}
+
+/** 개소 하나의 내역·도면 목록. 처음 한 번 두 JSON을 읽어 개소별로 나눠 캐시에 넣는다(개소당 약 10KB). */
+function siteData_(no) {
+  const cache = CacheService.getScriptCache(), key = 'site_' + SITE_DOC_VER + '_' + no;
+  try { const hit = cache.get(key); if (hit) return JSON.parse(hit); } catch (e) { /* 캐시 실패는 무시 */ }
+  const folder = siteFolder_();
+  const boq = siteReadJson_(folder, 'site_boq.json'), dwg = siteReadJson_(folder, 'site_dwg.json');
+  if (!boq || !dwg || !boq.sites || !dwg.sites) return null;
+  const all = {};
+  Object.keys(boq.sites).forEach(function (k) {
+    const b = boq.sites[k];
+    const d = (dwg.sites[k] || []).map(function (r) { return { seq: Number(r[0]), serial: String(r[1]), code: String(r[2]), title: String(r[3]), scale: String(r[4] || ''), file: String(r[5]) }; });
+    all['site_' + SITE_DOC_VER + '_' + k] = JSON.stringify({ no: Number(b.no), name: String(b.name), kind: String(b.kind || ''), total: Number(b.total) || 0, cols: boq.cols, rows: b.rows, src: String(boq.src || ''), made: String(boq.made || ''), drawings: d });
+  });
+  try { cache.putAll(all, SITE_DOC_TTL); } catch (e) { /* 너무 크면 개소별로 다시 읽는다 */ }
+  return all[key] ? JSON.parse(all[key]) : { missing: true };
+}
+
+function siteNo_(v) { const n = Number(v); return (n >= 1 && n <= 27 && Math.floor(n) === n) ? n : 0; }
+
+function siteInfo_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const no = siteNo_(req.no); if (!no) return fail_('PARAM', '개소 번호가 올바르지 않습니다.');
+  let d;
+  try { d = siteData_(no); } catch (e) { return fail_('NOT_READY', '공구 자료를 읽지 못했습니다: ' + String(e && e.message || e)); }
+  if (!d) return fail_('NOT_READY', '공구 자료 파일(site_boq.json · site_dwg.json)이 아직 없습니다.');
+  if (d.missing) return fail_('NOT_FOUND', no + '번 개소의 내역이 없습니다.');
+  return { ok: true, no: d.no, name: d.name, kind: d.kind, total: d.total, cols: d.cols, rows: d.rows, src: d.src, made: d.made,
+    drawings: d.drawings.map(function (x) { return { seq: x.seq, serial: x.serial, code: x.code, title: x.title, scale: x.scale }; }) };
+}
+
+function siteDrawing_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const no = siteNo_(req.no), seq = Number(req.seq);
+  if (!no || !(seq >= 1 && seq <= 30)) return fail_('PARAM', '도면을 고르지 못했습니다.');
+  let d;
+  try { d = siteData_(no); } catch (e) { return fail_('NOT_READY', '공구 자료를 읽지 못했습니다.'); }
+  if (!d || d.missing) return fail_('NOT_FOUND', '도면 목록이 없습니다.');
+  const x = d.drawings.filter(function (r) { return r.seq === seq; })[0];
+  if (!x) return fail_('NOT_FOUND', '없는 도면입니다.');
+  const cache = CacheService.getScriptCache(), ck = 'sdf_' + x.file;
+  let blob = null, fid = '';
+  try { fid = cache.get(ck) || ''; } catch (e) { fid = ''; }
+  if (fid) { try { blob = DriveApp.getFileById(fid).getBlob(); } catch (e) { blob = null; } }
+  if (!blob) {
+    const it = siteFolder_().getFilesByName(x.file);
+    if (!it.hasNext()) return fail_('NOT_FOUND', '도면 파일을 찾을 수 없습니다: ' + x.file);
+    const f = it.next(); fid = f.getId(); blob = f.getBlob();
+    try { cache.put(ck, fid, SITE_DOC_TTL); } catch (e) { /* 무시 */ }
+  }
+  return { ok: true, no: no, seq: seq, title: x.title, code: x.code, scale: x.scale, mime: blob.getContentType() || 'image/jpeg', data: Utilities.base64Encode(blob.getBytes()) };
 }

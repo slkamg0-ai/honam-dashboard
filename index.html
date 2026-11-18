@@ -161,6 +161,7 @@ header h1{font-weight:600;letter-spacing:0}
 .btns a,.btns a.k,.btns a.n{background:#fff;color:var(--ink);border:1px solid var(--bd);gap:8px}
 .btns a.k:before,.btns a.n:before{content:"";width:8px;height:8px;border-radius:2px;flex:none}
 .btns a.k:before{background:#f2d700}.btns a.n:before{background:#03c75a}
+.btns a.erp{color:var(--pri2);border-style:dashed}.btns a.erp .lk{font-size:11px;font-weight:600;color:var(--sub);border:1px solid var(--bd);padding:0 6px;margin-left:2px}
 .btns a{display:flex;align-items:center;justify-content:center}.btns a:hover{background:#f6f7f8}
 .pchk{width:22px;height:22px;border:1.5px solid var(--bd);border-radius:4px;font-size:14px;margin-top:2px}
 .pchk.on{background:var(--grn);border-color:var(--grn)}
@@ -660,7 +661,8 @@ function slist(){stable();var el=document.getElementById("slist");el.innerHTML="
  S.filter(function(s){return cur==="all"||s.grp===cur}).forEach(function(s){var L=links(s),st=ST[status(s)],d=document.createElement("div");d.className="sc";d.id="c"+s.no;
  d.innerHTML="<div class='top'><div class='no' style='background:"+GC[s.grp]+"'>"+s.no+"</div><div style='flex:1'><div class='t' style='font-weight:700;font-size:15.5px'>"+s.line+" "+s.km+(s.no===27?"<span class='tag t-w'>1차+후속</span>":"")+"</div><div class='u' style='font-size:12.5px;color:var(--sub)'>"+s.work+"</div></div><span class='tag "+st[1]+"'>"+st[0]+"</span></div>"
   +"<div class='row'><b>소재지</b>"+s.addr+" <span style='font-size:11.5px;color:var(--sub);border:1px solid var(--bd);padding:0 5px;margin-left:4px'>"+(s.prec?"지번 위치":"마을 중심(대략)")+"</span></div><div class='row'><b>시공(계획)</b>"+(s.seg?"1차분 "+fd(s.seg[0][0])+" ~ "+fd(s.seg[0][1])+" (계약 준공 "+fd(DATA.p1End)+") / 후속분 "+fd(s.seg[1][0])+" ~ "+fd(s.seg[1][1]):fd(s.start)+" ~ "+fd(s.end))+" · "+crewT(s.crew)+"</div>"+(s.road?"<div class='row'><b>공사용가도</b>설치 "+fd(s.road[0][0])+" ~ "+fd(s.road[0][1])+" · 철거 "+fd(s.road[1][0])+" ~ "+fd(s.road[1][1])+" <span style='font-size:11.5px;color:var(--sub)'>(주간 토공반)</span></div>":"")
-  +"<div class='btns'><a class='k' href='"+L.k+"'>카카오맵</a><a class='n' href='"+L.n+"'>네이버지도</a><a href='"+L.g+"'>구글지도</a></div>";el.appendChild(d)})}
+  +"<div class='btns'><a class='k' href='"+L.k+"'>카카오맵</a><a class='n' href='"+L.n+"'>네이버지도</a><a href='"+L.g+"'>구글지도</a></div>"
+  +"<div class='btns'><a class='erp' href='erp2/#site="+s.no+"' title='직원용 ERP 로그인 후 이 공구의 착공내역과 설계도면을 봅니다'>착공내역 · 설계도면 <span class='lk'>직원 로그인</span> ›</a></div>";el.appendChild(d)})}
 function gotoSite(no,fromMap){
  var b=nav.querySelector("[data-t=sites]");if(!fromMap||true){Array.prototype.forEach.call(nav.children,function(x){x.className=x===b?"on":""});["dash","week","gantt","sites","permit"].forEach(function(id){document.getElementById(id).className=id==="sites"?"":"hide"})}
  var s=S.filter(function(x){return String(x.no)===String(no)})[0];if(cur!=="all"&&s.grp!==cur){cur="all";chips();slist();resetView()}drawMap();
