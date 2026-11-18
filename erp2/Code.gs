@@ -78,7 +78,7 @@ function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.26' }; }
+function ping_() { return { ok: true, now: new Date().toISOString(), tz: Session.getScriptTimeZone(), version: 'v2.27' }; }
 
 function route_(req) {
   const t0 = Date.now();
@@ -1136,9 +1136,9 @@ function opsPlan_() { return planData_().plan; }
 // 공개 현황판용 공정 조회(GET ?action=plan, 로그인 없음). 공정 일정·조 구간·월별 보할만 내보낸다(직원·경비·문서 정보 없음).
 const SHEET_SEG = '공정구간', SHEET_MON = '공정보할';
 function publicPlan_() {
-  const cache = CacheService.getScriptCache(), key = 'publicPlan_v2';
+  const cache = CacheService.getScriptCache(), key = 'publicPlan_v3';
   try { const hit = cache.get(key); if (hit) return JSON.parse(hit); } catch (e) { /* 캐시 실패는 무시 */ }
-  const out = { ok: true, version: '', src: 'code', updated: new Date().toISOString(), sites: [], seg: [], mon: [], holidays: [], week: [], board: [] };
+  const out = { ok: true, version: '', src: 'code', updated: new Date().toISOString(), sites: [], seg: [], mon: [], holidays: [], week: [], board: [], insp: [] };
   const pd = planData_();
   out.version = pd.version; out.src = pd.src; out.holidays = pd.holidays;
   try {
@@ -1173,8 +1173,32 @@ function publicPlan_() {
     if (sht) out.board = taskRows_(sht).filter(function (o) {
       return o.board === 'Y' && (o.status === TST.OPEN || (o.status === TST.DONE && String(o.doneAt).slice(0, 10) >= ymdAdd_(today, -14)));
     }).sort(taskOrder_).slice(0, 30).map(function (o) { return { title: o.title, due: o.due, urgent: o.urgent === 'Y', done: o.status === TST.DONE ? String(o.doneAt).slice(0, 10) : '' }; });
+    // v2.27 「현장점검」: 현황판=Y 줄만(ID·점검일·개소·구분·내용·상태·기한·비고). 담당(사람 이름)은 내보내지 않는다.
+    out.insp = inspRows_(ss);
   } catch (e) { out.ok = false; out.error = 'SHEET'; }
   try { cache.put(key, JSON.stringify(out), 60); } catch (e) { /* 크기 초과 등은 무시 */ }
+  return out;
+}
+
+// ───────────── 현장점검 v2.27 (현황판 개소·위치 지도에 표시) ─────────────
+// 시트 「현장점검」 열: ID, 점검일, 개소(쉼표 목록), 구분(점검결과·공급방안·조치·지적사항·메모), 내용, 상태, 기한, 담당, 현황판(Y/N), 비고, 수정일
+const SHEET_INSP = '현장점검';
+function inspRows_(ss) {
+  const sh = ss.getSheetByName(SHEET_INSP); if (!sh || sh.getLastRow() < 2) return [];
+  const out = [];
+  sh.getRange(2, 1, Math.min(sh.getLastRow() - 1, 300), 11).getValues().forEach(function (r) {
+    const id = cellStr_(r[0]).slice(0, 12), d = cellStr_(r[1]).slice(0, 10), pub = cellStr_(r[8]).toUpperCase();
+    const sites = [];
+    cellStr_(r[2]).replace(/#/g, '').split(/[,\s·]+/).forEach(function (t) {
+      const m = /^(\d{1,2})\s*[~\-]\s*(\d{1,2})$/.exec(t);
+      if (m) { for (let n = Number(m[1]); n <= Number(m[2]) && n < 100; n++) sites.push(n); }
+      else if (/^\d{1,2}$/.test(t)) sites.push(Number(t));
+    });
+    if (!id || pub !== 'Y' || !sites.length) return;
+    const due = cellStr_(r[6]).slice(0, 10);
+    out.push({ id: id, d: isYmd_(d) ? d : '', sites: sites, kind: cellStr_(r[3]).slice(0, 10), text: cellStr_(r[4]).slice(0, 200),
+      st: cellStr_(r[5]).slice(0, 10), due: isYmd_(due) ? due : '', note: cellStr_(r[9]).slice(0, 120) });
+  });
   return out;
 }
 

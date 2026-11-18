@@ -167,6 +167,7 @@ header h1{font-weight:600;letter-spacing:0}
 .pchk.on{background:var(--grn);border-color:var(--grn)}
 .abar.l-late,.abar.l-soon{background:var(--panel)}
 .warn{background:rgba(232,89,12,.05)}
+.insp{margin-top:9px;border-left:3px solid #14894a;background:rgba(20,137,74,.06);padding:7px 9px}.insp .ih{font-weight:700;font-size:13.5px;color:#14894a}.insp .ih small{color:var(--sub);font-weight:500;margin-left:4px}.insp .ih a{color:#14894a;margin-right:6px}.insp ul{margin:4px 0 0;padding:0;list-style:none}.insp li{display:flex;gap:8px;font-size:13px;line-height:1.45;padding:3px 0;border-top:1px solid rgba(29,31,32,.07)}.insp li:first-child{border-top:0}.insp .ik{flex:0 0 52px;color:var(--sub);font-size:12px}.insp .it{flex:1}.insp small{color:var(--sub)}.t-x{color:#c0392b!important}.t-x:before{background:#c0392b!important}
 </style></head><body>
 <header><div class="hrow"><div><h1>호남고속선 재해예방공사 현황판<span class="badge-plan">계획안</span></h1>
 <div class="s">국가철도공단 · (주)동우건설 · 정읍~광주송정 등 26개 개소 · <a class="erplink" href="erp2/" title="직원 로그인이 필요합니다">직원용 ERP ›</a></div></div>
@@ -221,6 +222,7 @@ header h1{font-weight:600;letter-spacing:0}
 </section>
 <section id="sites" class="hide">
  <div class="chips" id="chips"></div>
+ <div class="card" id="inspBox" style="display:none"></div>
 <div class="two2">
  <div class="card"><h2>작업구간 약도 <small>점을 누르면 해당 개소로 이동</small></h2><div style="position:relative;max-width:520px;margin:0 auto"><svg id="msvg" viewBox="0 0 330 470" style="width:100%;display:block;touch-action:pan-y;user-select:none;-webkit-user-select:none"></svg><div style="position:absolute;right:8px;top:8px;display:flex;flex-direction:column;gap:6px"><button id="zin" class="zb">+</button><button id="zout" class="zb">−</button><button id="zrs" class="zb" style="font-size:12px">전체</button><span id="zlvl" style="font:700 12px Barlow,sans-serif;text-align:center;color:var(--pri2)"></span></div></div>
  <div id="legend" class="note" style="display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:8px"></div><div class="note">약도입니다. 숫자 원은 가까운 개소를 묶은 것으로, 누르면 확대되거나 부채꼴로 펼쳐집니다. 두 손가락으로 확대·이동할 수 있습니다. 지번이 확인된 개소는 지번 위치로, 나머지는 소재지(리·동) 중심으로 표시합니다. 카드에서 구분됩니다. 정확한 위치는 아래 지도 버튼으로 확인하세요.</div></div>
@@ -237,8 +239,10 @@ var DATA={"p1End":"2026-12-21","start":"2026-11-03","deadline":"2028-06-02","ear
 var PLAN_API="https://script.google.com/macros/s/AKfycby6NUOrOTc3Ym6xHlkdR6EUikm9GyBX1Oj2G0bLMCxAu4i_byK8ZQV29CHb23KRHm7d/exec?action=plan",PLAN_KEY="honamPlanLive_v1";
 var PLAN0={"ok":true,"version":"v5 2026-11-15","src":"sheet","sites":[{"no":27,"start":"2026-11-13","end":"2027-02-03","crew":"F조","note":"CPM_보할_v5 · 실착수 11.13"},{"no":13,"start":"2027-02-15","end":"2027-03-19","crew":"격자조","note":"CPM_보할_v5"},{"no":14,"start":"2027-03-20","end":"2027-04-16","crew":"격자조","note":"CPM_보할_v5"},{"no":9,"start":"2027-03-29","end":"2027-09-24","crew":"수로조+격자조","note":"CPM_보할_v5"},{"no":8,"start":"2027-04-13","end":"2027-05-03","crew":"수로조","note":"CPM_보할_v5"},{"no":12,"start":"2027-04-17","end":"2027-06-03","crew":"격자조","note":"CPM_보할_v5"},{"no":7,"start":"2027-05-04","end":"2027-05-18","crew":"수로조","note":"CPM_보할_v5"},{"no":6,"start":"2027-05-19","end":"2027-10-25","crew":"수로조+격자조","note":"CPM_보할_v5"},{"no":5,"start":"2027-05-26","end":"2027-06-08","crew":"수로조","note":"CPM_보할_v5"},{"no":11,"start":"2027-06-04","end":"2027-07-12","crew":"격자조","note":"CPM_보할_v5"},{"no":4,"start":"2027-06-09","end":"2027-06-22","crew":"수로조","note":"CPM_보할_v5"},{"no":3,"start":"2027-06-23","end":"2027-07-07","crew":"수로조","note":"CPM_보할_v5"},{"no":2,"start":"2027-07-08","end":"2027-07-26","crew":"수로조","note":"CPM_보할_v5"},{"no":10,"start":"2027-07-13","end":"2027-08-27","crew":"격자조","note":"CPM_보할_v5"},{"no":1,"start":"2027-07-27","end":"2027-08-17","crew":"수로조","note":"CPM_보할_v5"},{"no":26,"start":"2027-08-18","end":"2027-09-20","crew":"수로조","note":"CPM_보할_v5"},{"no":15,"start":"2027-09-21","end":"2027-10-06","crew":"수로조","note":"CPM_보할_v5"},{"no":17,"start":"2027-10-07","end":"2027-11-16","crew":"수로조","note":"CPM_보할_v5"},{"no":21,"start":"2027-10-26","end":"2028-02-15","crew":"수로조+격자조","note":"CPM_보할_v5"},{"no":16,"start":"2027-11-17","end":"2027-12-07","crew":"수로조","note":"CPM_보할_v5"},{"no":23,"start":"2027-12-07","end":"2028-03-14","crew":"수로조+격자조","note":"CPM_보할_v5"},{"no":18,"start":"2027-12-08","end":"2027-12-21","crew":"수로조","note":"CPM_보할_v5"},{"no":19,"start":"2027-12-22","end":"2028-01-05","crew":"수로조","note":"CPM_보할_v5"},{"no":25,"start":"2027-12-25","end":"2028-03-27","crew":"수로조+격자조","note":"CPM_보할_v5"},{"no":20,"start":"2028-01-06","end":"2028-02-01","crew":"수로조","note":"CPM_보할_v5"},{"no":22,"start":"2028-02-16","end":"2028-02-29","crew":"수로조","note":"CPM_보할_v5"}],"seg":[[1,"수로조","수로·구조물","2027-07-27","2027-08-17"],[2,"수로조","수로·구조물","2027-07-08","2027-07-26"],[3,"수로조","수로·구조물","2027-06-23","2027-07-07"],[4,"수로조","수로·구조물","2027-06-09","2027-06-22"],[5,"수로조","수로·구조물","2027-05-26","2027-06-08"],[6,"가도","가도 설치","2027-05-18","2027-05-18"],[6,"격자조","소규모격자블럭","2027-09-25","2027-10-25"],[6,"수로조","수로·구조물","2027-05-19","2027-05-25"],[6,"가도","가도 철거","2027-10-26","2027-10-26"],[7,"가도","가도 설치","2027-05-03","2027-05-03"],[7,"수로조","수로·구조물","2027-05-04","2027-05-18"],[7,"가도","가도 철거","2027-05-19","2027-05-19"],[8,"수로조","수로·구조물","2027-04-13","2027-05-03"],[9,"가도","가도 설치","2027-03-23","2027-03-26"],[9,"격자조","소규모격자블럭","2027-08-28","2027-09-24"],[9,"수로조","수로·구조물","2027-03-29","2027-04-12"],[9,"가도","가도 철거","2027-09-27","2027-09-28"],[10,"격자조","소규모격자블럭","2027-07-13","2027-08-27"],[11,"가도","가도 설치","2027-06-03","2027-06-03"],[11,"격자조","소규모격자블럭","2027-06-04","2027-07-12"],[11,"가도","가도 철거","2027-07-13","2027-07-13"],[12,"격자조","소규모격자블럭","2027-04-17","2027-06-03"],[13,"격자조","소규모격자블럭","2027-02-15","2027-03-19"],[14,"격자조","소규모격자블럭","2027-03-20","2027-04-16"],[15,"가도","가도 설치","2027-09-20","2027-09-20"],[15,"수로조","수로·구조물","2027-09-21","2027-10-06"],[15,"가도","가도 철거","2027-10-07","2027-10-07"],[16,"가도","가도 설치","2027-11-15","2027-11-16"],[16,"수로조","수로·구조물","2027-11-17","2027-12-07"],[16,"가도","가도 철거","2027-12-08","2027-12-08"],[17,"수로조","수로·구조물","2027-10-07","2027-11-16"],[18,"가도","가도 설치","2027-12-07","2027-12-07"],[18,"수로조","수로·구조물","2027-12-08","2027-12-21"],[18,"가도","가도 철거","2027-12-22","2027-12-22"],[19,"수로조","수로·구조물","2027-12-22","2028-01-05"],[20,"수로조","수로·구조물","2028-01-06","2028-02-01"],[21,"격자조","소규모격자블럭","2027-10-26","2027-12-06"],[21,"수로조","수로·구조물","2028-02-02","2028-02-15"],[22,"가도","가도 설치","2028-02-15","2028-02-15"],[22,"수로조","수로·구조물","2028-02-16","2028-02-29"],[22,"가도","가도 철거","2028-03-02","2028-03-02"],[23,"가도","가도 설치","2027-12-02","2027-12-06"],[23,"격자조","소규모격자블럭","2027-12-07","2027-12-23"],[23,"수로조","수로·구조물","2028-03-02","2028-03-14"],[23,"가도","가도 철거","2028-03-15","2028-03-16"],[25,"격자조","소규모격자블럭","2027-12-25","2028-01-18"],[25,"수로조","수로·구조물","2028-03-15","2028-03-27"],[26,"수로조","수로·구조물","2027-08-18","2027-09-20"],[27,"F조","1차분","2026-12-10","2027-01-06"],[27,"F조","후속분","2027-01-07","2027-02-03"]],"mon":[["2026-11",2404047,0.06],["2026-12",41836499,1.14],["2027-01",75738479,3.1],["2027-02",76373911,5.07],["2027-03",255330435,11.67],["2027-04",300043197,19.43],["2027-05",262478642,26.21],["2027-06",288859083,33.68],["2027-07",314034091,41.8],["2027-08",268514233,48.74],["2027-09",294828186,56.36],["2027-10",341838725,65.19],["2027-11",407939793,75.73],["2027-12",391170484,85.84],["2028-01",149545341,89.71],["2028-02",196882430,94.8],["2028-03",190449944,99.72],["2028-04",5151530,99.85],["2028-05",5323248,99.99],["2028-06",343435,100.0]]};
 function f2(n){return n<10?"0"+n:""+n}
+// v2.27 현장점검 내장 사본(서버 「현장점검」 시트를 못 읽을 때 사용). 서버가 insp를 주면 그것으로 바꾼다.
+var INSP0=[{"id":"I01","d":"2026-11-19","sites":[10,11,12,13,14],"kind":"점검결과","text":"소규모격자블럭 시공구간 현장점검 결과 바로 시공 가능","st":"확인","due":"","note":"현장소장 점검(2026-11-19 보고)"},{"id":"I02","d":"2026-11-19","sites":[10,11,12,13,14],"kind":"공급방안","text":"1안 설계안대로: 레미콘사에서 몰탈을 공급받아 타설(야간 공급 협의, 업체 선정 및 직영 확인, 레미콘 믹서트럭 임대)","st":"검토중","due":"2027-01-15","note":"야간 1회 압송량 약 3.6㎥(60㎡) — 차 1대(6㎥) 미달"},{"id":"I03","d":"2026-11-19","sites":[10,11,12,13,14],"kind":"공급방안","text":"2안 현장비빔: 시멘트·모래 반입, 물차 사용, 현장 믹서 비빔","st":"검토중","due":"2027-01-15","note":"차단 승인 후 비빔 → 폐기 위험 없음"},{"id":"I04","d":"2026-11-19","sites":[10,11,12,13,14],"kind":"조치","text":"(1안) 레미콘사 야간·소량 몰탈 공급 가능 여부·조건 서면 회신 받기, 업체 선정","st":"예정","due":"2026-12-15","note":"기한은 제안값(#13·#14 2027.2.15 착수 기준)"},{"id":"I05","d":"2026-11-19","sites":[10,11,12,13,14],"kind":"조치","text":"(1안) 레미콘 믹서트럭 임대 조건 확인, 직영 운영 확인","st":"예정","due":"2026-12-15","note":""},{"id":"I06","d":"2026-11-19","sites":[10,11,12,13,14],"kind":"조치","text":"(2안) 배합설계·시험비빔, 믹서·계량 설비, 시멘트 보관·모래 적치 장소, 물차 배치 확인","st":"예정","due":"2027-01-15","note":""},{"id":"I07","d":"2026-11-19","sites":[10,11,12,13,14],"kind":"조치","text":"(공통) 태진쏘일텍 펌프 기종(펌프차/몰탈 펌프)·압송 거리 확인","st":"예정","due":"2026-12-15","note":""},{"id":"I08","d":"2026-11-19","sites":[10,11,12,13,14],"kind":"조치","text":"몰탈 공급 방식 결정 → 시공계획서·품질관리계획 반영, 감독 승인","st":"예정","due":"2027-01-29","note":""}];DATA.insp=INSP0;
 function planClean(v){return String(v==null?"":v).replace(/[<>&"'`]/g,"")}
-function planKeyOf(p){return JSON.stringify([p.version,p.sites,p.seg,p.mon])}
+function planKeyOf(p){return JSON.stringify([p.version,p.sites,p.seg,p.mon,p.insp||null])}
 function planOk(p){return !!(p&&p.sites&&p.sites.length&&p.seg&&p.mon&&p.mon.length)}
 function applyPlan(p){
  var by={};p.sites.forEach(function(x){by[+x.no]=x});
@@ -252,7 +256,7 @@ function applyPlan(p){
  DATA.seg=(p.seg||[]).map(function(r){return[+r[0],planClean(r[1]),planClean(r[2]),r[3],r[4]]});
  var w=[];p.mon.forEach(function(m){var y=+m[0].slice(0,4),mo=+m[0].slice(5,7),e=new Date(y,mo,0),ds=e.getFullYear()+"-"+f2(e.getMonth()+1)+"-"+f2(e.getDate());if(ds>DATA.deadline)ds=DATA.deadline;w.push([ds,+m[2]])});
  if(w.length){w[w.length-1][1]=100;DATA.weekly=w}
- DATA.mon=p.mon.map(function(m){return[m[0],+m[1],+m[2]]});DATA.stop=null;DATA.planVer=planClean(p.version);DATA.planKey=planKeyOf(p)}
+ DATA.mon=p.mon.map(function(m){return[m[0],+m[1],+m[2]]});DATA.stop=null;DATA.planVer=planClean(p.version);if(Array.isArray(p.insp))DATA.insp=p.insp.filter(function(x){return x&&Array.isArray(x.sites)});DATA.planKey=planKeyOf(p)}
 (function(){var c=null;try{c=JSON.parse(localStorage.getItem(PLAN_KEY)||"null")}catch(e){}
  applyPlan(planOk(c)?c:PLAN0)})();
 
@@ -443,7 +447,7 @@ function row(s){var st=ST[status(s)];return "<div class='srow' onclick=\"gotoSit
  var chk=0;
  function check(){if(!window.fetch)return;chk=Date.now();
   fetch(PLAN_API,{cache:"no-store"}).then(function(r){return r.json()}).then(function(p){if(!p||!p.ok||!planOk(p))return;
-   var k=planKeyOf(p);try{localStorage.setItem(PLAN_KEY,JSON.stringify({ok:true,version:p.version,src:p.src,sites:p.sites,seg:p.seg,mon:p.mon,holidays:p.holidays||[],week:p.week||[],board:p.board||[]}))}catch(e){}
+   var k=planKeyOf(p);try{localStorage.setItem(PLAN_KEY,JSON.stringify({ok:true,version:p.version,src:p.src,sites:p.sites,seg:p.seg,mon:p.mon,holidays:p.holidays||[],week:p.week||[],board:p.board||[],insp:p.insp}))}catch(e){}
    if(window.onLive)window.onLive(p);
    if(k===DATA.planKey)return;
    var g="";try{g=sessionStorage.getItem("honamPlanReload")||""}catch(e){}
@@ -610,7 +614,7 @@ function drawMap(){
   cal+="<g><rect x='"+bx.toFixed(1)+"' y='"+by.toFixed(1)+"' width='"+bw+"' height='"+bh+"' fill='#fff' fill-opacity='.95' stroke='"+GC[r]+"' stroke-width='1.4'/><text x='"+(bx+6).toFixed(1)+"' y='"+(by+13).toFixed(1)+"' font-size='10.5' font-weight='700' fill='"+GC[r]+"'>"+r+"권 "+pts.length+"개소</text><text x='"+(bx+6).toFixed(1)+"' y='"+(by+26).toFixed(1)+"' font-size='12' font-weight='700' fill='#1d1f20'>"+mil(COST[r])+"백만원</text></g>"});
  if(VIEW.z<=1.3)h+=lines;
  off.forEach(function(s){h+="<circle cx='"+s.x+"' cy='"+s.y+"' r='5' fill='"+GC[s.grp]+"' opacity='.25'/>"});
- function mk(s,x,y){var r=s.no===27?10:8.5;return "<g data-no='"+s.no+"' class='mk' style='cursor:pointer'><circle cx='"+x.toFixed(1)+"' cy='"+y.toFixed(1)+"' r='"+r+"' fill='"+GC[s.grp]+"' stroke='#fff' stroke-width='1.6'/><text x='"+x.toFixed(1)+"' y='"+(y+3.4).toFixed(1)+"' text-anchor='middle' font-size='9.5' font-weight='700' fill='#fff' pointer-events='none'>"+s.no+"</text></g>"}
+ function mk(s,x,y){var r=s.no===27?10:8.5,iv=inspOf(s.no).length;return "<g data-no='"+s.no+"' class='mk' style='cursor:pointer'>"+(iv?"<circle cx='"+x.toFixed(1)+"' cy='"+y.toFixed(1)+"' r='"+(r+3.2)+"' fill='none' stroke='#14894a' stroke-width='2.4'/>":"")+"<circle cx='"+x.toFixed(1)+"' cy='"+y.toFixed(1)+"' r='"+r+"' fill='"+GC[s.grp]+"' stroke='#fff' stroke-width='1.6'/><text x='"+x.toFixed(1)+"' y='"+(y+3.4).toFixed(1)+"' text-anchor='middle' font-size='9.5' font-weight='700' fill='#fff' pointer-events='none'>"+s.no+"</text></g>"}
  cl.forEach(function(c){
   if(c.m.length===1){h+=mk(c.m[0],c.x,c.y);return}
   var same=c.m.every(function(q){return q.grp===c.m[0].grp}),col=same?GC[c.m[0].grp]:"#1F3864";
@@ -622,7 +626,7 @@ function drawMap(){
    h+="<g data-sp='1' class='cl' style='cursor:pointer'><circle cx='"+c.x.toFixed(1)+"' cy='"+c.y.toFixed(1)+"' r='4.5' fill='"+col+"' stroke='#fff' stroke-width='1.4'/></g>";
    c.m.forEach(function(q,i){var an=2*Math.PI*i/n-Math.PI/2;h+=mk(q,c.x+R*Math.cos(an),c.y+R*Math.sin(an))});
   }else{
-   h+="<g data-cl='"+c.key+"' class='cl' style='cursor:pointer'><circle cx='"+c.x.toFixed(1)+"' cy='"+c.y.toFixed(1)+"' r='14' fill='"+col+"' fill-opacity='.9' stroke='#fff' stroke-width='2'/><text x='"+c.x.toFixed(1)+"' y='"+(c.y+4.6).toFixed(1)+"' text-anchor='middle' font-size='13' font-weight='700' fill='#fff' pointer-events='none'>"+c.m.length+"</text></g>"}
+   h+="<g data-cl='"+c.key+"' class='cl' style='cursor:pointer'>"+(c.m.some(function(q){return inspOf(q.no).length})?"<circle cx='"+c.x.toFixed(1)+"' cy='"+c.y.toFixed(1)+"' r='17.5' fill='none' stroke='#14894a' stroke-width='2.6'/>":"")+"<circle cx='"+c.x.toFixed(1)+"' cy='"+c.y.toFixed(1)+"' r='14' fill='"+col+"' fill-opacity='.9' stroke='#fff' stroke-width='2'/><text x='"+c.x.toFixed(1)+"' y='"+(c.y+4.6).toFixed(1)+"' text-anchor='middle' font-size='13' font-weight='700' fill='#fff' pointer-events='none'>"+c.m.length+"</text></g>"}
  });
  if(VIEW.z<=1.3)h+=cal;h+="<rect width='330' height='470' fill='none' stroke='rgba(29,31,32,.3)'/>";
  var svg=document.getElementById("msvg");svg.innerHTML=h;
@@ -656,18 +660,33 @@ function drawMap(){
  document.getElementById("zout").onclick=function(){zoomAt(.5,VIEW.lon,VIEW.lat)};
  document.getElementById("zrs").onclick=function(){resetView();redraw()};
 })();
+// ---- 현장점검(v2.27): 시트 「현장점검」 → 지도 테두리·개소 카드·점검 관리 카드
+function iesc(v){return String(v==null?"":v).replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
+function inspOf(no){return (DATA.insp||[]).filter(function(i){return i.sites.indexOf(+no)>=0})}
+function inspLate(i){return i.due&&!/^(완료|확인)$/.test(i.st)&&D(i.due)<TODAY}
+function inspTag(i){var c=/^(완료|확인)$/.test(i.st)?"t-d":(inspLate(i)?"t-x":(i.st==="진행"||i.st==="검토중"?"t-w":"t-p"));return "<span class='tag "+c+"'>"+iesc(inspLate(i)?"기한 지남":i.st)+"</span>"}
+function inspLine(i,showSites){return "<li><span class='ik'>"+iesc(i.kind)+"</span><span class='it'>"+(showSites?"<b>#"+i.sites.join("·#")+"</b> ":"")+iesc(i.text)+inspTag(i)+(i.due?"<small> 기한 "+fd(i.due)+"</small>":"")+(i.note?"<br><small>"+iesc(i.note)+"</small>":"")+"</span></li>"}
+function inspCard(no){var a=inspOf(no);if(!a.length)return"";var d=a.map(function(i){return i.d}).filter(Boolean).sort().pop();
+ return "<div class='insp'><div class='ih'>현장점검"+(d?" <small>"+fd(d)+"</small>":"")+"</div><ul>"+a.map(function(i){return inspLine(i,false)}).join("")+"</ul></div>"}
+function inspBox(){var el=document.getElementById("inspBox");if(!el)return;var a=(DATA.insp||[]);if(!a.length){el.style.display="none";return}el.style.display="";
+ var open=a.filter(function(i){return!/^(완료|확인)$/.test(i.st)}),late=open.filter(inspLate),grp={};
+ a.forEach(function(i){var k=i.sites.join(",");(grp[k]=grp[k]||[]).push(i)});
+ el.innerHTML="<h2>현장점검 기록 <small>지도에서 초록 테두리 개소 · 미결 "+open.length+"건"+(late.length?" · 기한 지남 "+late.length+"건":"")+"</small></h2>"+Object.keys(grp).map(function(k){var g=grp[k];
+  return "<div class='insp'><div class='ih'>"+k.split(",").map(function(n){return"<a href='#' data-go='"+n+"'>#"+n+"</a>"}).join(" ")+"</div><ul>"+g.map(function(i){return inspLine(i,false)}).join("")+"</ul></div>"}).join("")
+  +"<div class='note'>점검 내용은 ERP DB 「현장점검」 시트에서 고치면 1분 안에 반영됩니다. 기한이 지나고 완료되지 않은 항목은 「기한 지남」으로 표시합니다.</div>";
+ Array.prototype.forEach.call(el.querySelectorAll("[data-go]"),function(b){b.onclick=function(e){e.preventDefault();gotoSite(b.getAttribute("data-go"),true)}})}
 function links(s){var q=encodeURIComponent(s.addr);return{k:"https://map.kakao.com/link/map/"+encodeURIComponent("["+s.no+"번] "+s.line+" "+s.km)+","+s.lat+","+s.lon,n:"https://map.naver.com/p/search/"+q,g:"https://www.google.com/maps/search/?api=1&query="+s.lat+","+s.lon}}
 function slist(){stable();var el=document.getElementById("slist");el.innerHTML="";
  S.filter(function(s){return cur==="all"||s.grp===cur}).forEach(function(s){var L=links(s),st=ST[status(s)],d=document.createElement("div");d.className="sc";d.id="c"+s.no;
  d.innerHTML="<div class='top'><div class='no' style='background:"+GC[s.grp]+"'>"+s.no+"</div><div style='flex:1'><div class='t' style='font-weight:700;font-size:15.5px'>"+s.line+" "+s.km+(s.no===27?"<span class='tag t-w'>1차+후속</span>":"")+"</div><div class='u' style='font-size:12.5px;color:var(--sub)'>"+s.work+"</div></div><span class='tag "+st[1]+"'>"+st[0]+"</span></div>"
   +"<div class='row'><b>소재지</b>"+s.addr+" <span style='font-size:11.5px;color:var(--sub);border:1px solid var(--bd);padding:0 5px;margin-left:4px'>"+(s.prec?"지번 위치":"마을 중심(대략)")+"</span></div><div class='row'><b>시공(계획)</b>"+(s.seg?"1차분 "+fd(s.seg[0][0])+" ~ "+fd(s.seg[0][1])+" (계약 준공 "+fd(DATA.p1End)+") / 후속분 "+fd(s.seg[1][0])+" ~ "+fd(s.seg[1][1]):fd(s.start)+" ~ "+fd(s.end))+" · "+crewT(s.crew)+"</div>"+(s.road?"<div class='row'><b>공사용가도</b>설치 "+fd(s.road[0][0])+" ~ "+fd(s.road[0][1])+" · 철거 "+fd(s.road[1][0])+" ~ "+fd(s.road[1][1])+" <span style='font-size:11.5px;color:var(--sub)'>(주간 토공반)</span></div>":"")
-  +"<div class='btns'><a class='k' href='"+L.k+"'>카카오맵</a><a class='n' href='"+L.n+"'>네이버지도</a><a href='"+L.g+"'>구글지도</a></div>"
+  +inspCard(s.no)+"<div class='btns'><a class='k' href='"+L.k+"'>카카오맵</a><a class='n' href='"+L.n+"'>네이버지도</a><a href='"+L.g+"'>구글지도</a></div>"
   +"<div class='btns'><a class='erp' href='erp2/#site="+s.no+"' title='직원용 ERP 로그인 후 이 공구의 착공내역과 설계도면을 봅니다'>착공내역 · 설계도면 <span class='lk'>직원 로그인</span> ›</a></div>";el.appendChild(d)})}
 function gotoSite(no,fromMap){
  var b=nav.querySelector("[data-t=sites]");if(!fromMap||true){Array.prototype.forEach.call(nav.children,function(x){x.className=x===b?"on":""});["dash","week","gantt","sites","permit"].forEach(function(id){document.getElementById(id).className=id==="sites"?"":"hide"})}
  var s=S.filter(function(x){return String(x.no)===String(no)})[0];if(cur!=="all"&&s.grp!==cur){cur="all";chips();slist();resetView()}drawMap();
  var el=document.getElementById("c"+no);if(el){el.scrollIntoView({behavior:"smooth",block:"start"});el.classList.add("hl");setTimeout(function(){el.classList.remove("hl")},1600)}}
-chips();slist();
+chips();slist();inspBox();
 var REG=["북부","장성","광주","순천·광양","곡성"],COST={},CNT={};
 S.forEach(function(s){COST[s.grp]=(COST[s.grp]||0)+s.cost;CNT[s.grp]=(CNT[s.grp]||0)+1});
 function mil(n){return Math.round(n/1e6).toLocaleString("ko-KR")}
@@ -677,5 +696,5 @@ var ANCH={};GEO.forEach(function(f){if(f.g&&(!ANCH[f.g]||f.k>ANCH[f.g].k))ANCH[f
  l.innerHTML="<div style='font-weight:700;color:var(--ink);font-size:13px;margin-bottom:4px'>권역별 공사금액 <span style='font-weight:500;color:var(--sub)'>(직접공사비, 백만원)</span></div>"
  +REG.map(function(r){var p=COST[r]/tot*100;return "<div style='display:flex;align-items:center;gap:8px;padding:5px 0;border-top:1px solid var(--bdl)'><i style='flex:0 0 14px;height:14px;background:"+GC[r]+";opacity:.7'></i><span style='flex:0 0 86px;font-weight:700;color:var(--ink);font-size:13.5px'>"+r+"권 <span style='font-weight:500;color:var(--sub);font-size:12px'>"+CNT[r]+"개소</span></span><span style='flex:1;height:8px;background:rgba(29,31,32,.08)'><b style='display:block;height:100%;width:"+p.toFixed(1)+"%;background:"+GC[r]+";opacity:.75'></b></span><span style='flex:0 0 74px;text-align:right;font:700 15px \"Barlow Condensed\",sans-serif;color:var(--ink)'>"+mil(COST[r])+"</span></div>"}).join("")
  +"<div style='display:flex;justify-content:space-between;border-top:2px solid var(--ink);padding-top:5px;margin-top:2px;color:var(--ink);font-weight:700'><span>합계 "+S.length+"개소</span><span class='cond' style='font-size:16px'>"+mil(tot)+"백만원</span></div>"
- +"<div style='margin-top:4px'>가설공·간접비·부가세 제외. 행정경계는 시·군·구 기준입니다.</div>"})();
+ +"<div style='margin-top:4px'>가설공·간접비·부가세 제외. 행정경계는 시·군·구 기준입니다.</div>"+"<div style='margin-top:6px;display:flex;align-items:center;gap:6px'><svg width='22' height='22'><circle cx='11' cy='11' r='7' fill='#1F3864'/><circle cx='11' cy='11' r='9.6' fill='none' stroke='#14894a' stroke-width='2.2'/></svg>초록 테두리 = 현장점검 기록이 있는 개소</div>"})();
 </script></body></html>
