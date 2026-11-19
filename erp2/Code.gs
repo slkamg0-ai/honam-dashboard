@@ -1,5 +1,6 @@
 /**
  * HN28 현장 ERP v2 — 서버 (Apps Script)  1단계 로그인·직원 관리 / 2단계 경비 입력·결재·문서번호·영수증 / 3단계 월 마감·누락분 / 4단계 작업일보
+ *  v2.28: 작업일보 출력(opsReport) — 감리단 보고 양식 PDF, 일일·기간·월간
  *
  * 화면(GitHub Pages)이 보낸 요청에 JSON으로 답한다. 데이터는 구글 시트(HN28_ERP_DB)에만 둔다.
  *  - 모든 요청은 POST(text/plain, JSON 본문). GET 은 ping 만 허용한다(주소창에 PIN 이 남지 않게).
@@ -110,6 +111,7 @@ function route_(req) {
       case 'submitOps': out = submitOps_(req); break;
       case 'confirmOps': out = confirmOps_(req); break;
       case 'deleteOps': out = deleteOps_(req); break;
+      case 'opsReport': out = opsReport_(req); break;
       case 'listDocs': out = listDocs_(req); break;
       case 'saveDoc': out = saveDoc_(req); break;
       case 'submitDoc': out = submitDoc_(req); break;
@@ -1467,6 +1469,205 @@ function deleteOps_(req) {
   } finally {
     lock.releaseLock();
   }
+}
+
+// ───────────── 작업일보 출력 v2.28 — 감리단 보고 양식(「11월 작업일보 양식.xlsx」 모양) PDF ─────────────
+// 일일(기본)·기간·월간. 「작업일보 출력 양식(ERP)」 시트를 날짜마다 복사해 채우고 A4 2쪽(1쪽 1~56행, 2쪽 57~108행) PDF로 내보낸다.
+// 확인대기·확인완료 건을 쓰고(작성중·반려·삭제 제외), 같은 날 여러 건은 작성 순서대로 합친다. 직원 수는 그날 건 중 최댓값.
+// 인원 누계는 OPS_RPT_START부터. ERP를 쓰기 전 날짜는 OPS_RPT_PRE(수기 작업일보 값)로 채운다.
+const OPS_RPT_FOLDER = '1_46-WOzKuUlXFYFRdKG9YBsGVmcylY95'; // 00 착공관련 서류\작업일보 — 그 안에 「ERP출력\YYYY-MM」 폴더를 만든다
+const OPS_RPT_START = '2026-11-01';
+const OPS_RPT_MAXDAYS = 62;
+const OPS_RPT_PRE = { // ERP 입력 전·누락일(11월 수기 작업일보 기준). ERP에 그날 건이 있으면 ERP가 우선
+  '2026-11-01': { memo: '휴무', staff: 0, weather: '맑음' },
+  '2026-11-02': { memo: '현장사무실 개설 준비', staff: 1 },
+  '2026-11-03': { memo: '현장사무실 개설 및 비품반입\n설계도서 검토', staff: 3 },
+  '2026-11-04': { memo: '현장사무실 비품 반입 및 정리', staff: 3 },
+  '2026-11-05': { memo: '현장사무실 비품정리', staff: 3 },
+  '2026-11-06': { memo: '', staff: 3 },
+  '2026-11-08': { memo: '휴무', staff: 0 },
+  '2026-11-09': { memo: '설계도면 검토 및 착공서류 준비\n장성현장 현장답사', staff: 3 },
+  '2026-11-14': { memo: '휴무', staff: 0 },
+  '2026-11-15': { memo: '휴무', staff: 0 }
+};
+const OPS_RPT_LINES = 12, OPS_RPT_NOTES = 5, OPS_RPT_WRAP = 64;
+
+function opsRptWidth_(s) { let w = 0; for (let i = 0; i < s.length; i++) w += /[ᄀ-ᇿ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]/.test(s.charAt(i)) ? 2 : 1; return w; }
+function opsRptDepth_(t) { const d = []; let k = 0; for (let i = 0; i < t.length; i++) { const c = t.charAt(i); if (c === ')' || c === ']') k = Math.max(0, k - 1); d.push(k); if (c === '(' || c === '[') k++; } return d; }
+/** 작업내용 한 건을 항목으로 나눈다: 「1. 2. 3.」 번호 → 없으면 문장 끝(「. 」)·괄호 뒤 새 항목. 괄호 안은 나누지 않는다. */
+function opsRptItems_(t) {
+  t = String(t || '').replace(/\s+/g, ' ').trim(); if (!t) return [];
+  const dep = opsRptDepth_(t);
+  let re = /(\d{1,2})\.\s?(?=\S)/g, m; const seq = []; let want = 1;
+  while ((m = re.exec(t))) {
+    const prev = m.index > 0 ? t.charAt(m.index - 1) : '';
+    if (/[\d#,~.]/.test(prev) || dep[m.index]) continue;
+    if (Number(m[1]) === want && (m.index === 0 || want > 1)) { seq.push(m.index); want++; }
+  }
+  if (seq.length >= 2) return seq.map(function (a, i) { return t.slice(a, i + 1 < seq.length ? seq[i + 1] : t.length).trim().replace(/,$/, ''); }).filter(String);
+  const cuts = [];
+  re = /\.\s+(?=\S)/g;
+  while ((m = re.exec(t))) { if (!dep[m.index] && !(m.index > 0 && /\d/.test(t.charAt(m.index - 1)))) cuts.push(m.index + m[0].length); }
+  re = /\)\s+(?=[^\s(])/g;
+  while ((m = re.exec(t))) {
+    const end = m.index + m[0].length, nxt = t.slice(end).split(' ')[0];
+    if (!dep[m.index] && !/,$/.test(nxt) && t.length - end >= 6) cuts.push(end);
+  }
+  const cs = cuts.filter(function (c, i, a) { return c > 0 && c < t.length && a.indexOf(c) === i; }).sort(function (a, b) { return a - b; });
+  const bounds = [0].concat(cs, [t.length]), out = [];
+  for (let i = 0; i + 1 < bounds.length; i++) {
+    let p = t.slice(bounds[i], bounds[i + 1]).trim(); if (!p) continue;
+    p = /\.$/.test(p) && !/\d\.$/.test(p) ? p.slice(0, -1) : p.replace(/,$/, '');
+    out.push(p);
+  }
+  return out;
+}
+function opsRptWrap_(item, w) {
+  w = w || OPS_RPT_WRAP; const out = []; let cur = '';
+  String(item).split(/(\s+)/).forEach(function (tok) {
+    if (opsRptWidth_(cur + tok) > w && cur.trim()) { out.push(cur.replace(/\s+$/, '')); cur = '   ' + tok.replace(/^\s+/, ''); } else cur += tok;
+  });
+  if (cur.trim()) out.push(cur.replace(/\s+$/, ''));
+  return out;
+}
+function opsRptDow_(d) { const p = d.split('-'); return '일월화수목금토'.charAt(new Date(Date.UTC(+p[0], +p[1] - 1, +p[2])).getUTCDay()); }
+function opsRptMonthEnd_(ym) { const y = +ym.slice(0, 4), mo = +ym.slice(5, 7); return ym + '-' + ('0' + new Date(Date.UTC(y, mo, 0)).getUTCDate()).slice(-2); }
+/** 계획 공정률(누계 %): 「공정보할」 시트 월 누계를 그 달 안에서 날짜 비례로 나눈다. */
+function opsRptPlanPct_(d, mon) {
+  const ym = d.slice(0, 7); let prev = 0, cur = null;
+  mon.forEach(function (r) { if (r[0] < ym) prev = r[2]; if (r[0] === ym) cur = r[2]; });
+  if (cur === null) return null;
+  const days = +opsRptMonthEnd_(ym).slice(8), day = +d.slice(8);
+  return prev + (cur - prev) * day / days;
+}
+function opsRptMon_() {
+  const out = [];
+  try {
+    const sm = getDb_().getSheetByName(SHEET_MON);
+    if (sm && sm.getLastRow() >= 2) sm.getRange(2, 1, sm.getLastRow() - 1, 3).getValues().forEach(function (r) {
+      const m = cellStr_(r[0]), c = Number(r[2]); if (/^\d{4}-\d{2}$/.test(m) && isFinite(c)) out.push([m, 0, c]);
+    });
+  } catch (e) { }
+  return out.sort(function (a, b) { return a[0] < b[0] ? -1 : 1; });
+}
+/** 날짜별 일보 묶음: {lines, notes, weather, staff, worker, safety, src} */
+function opsRptDays_(onlyDone, to) {
+  const rows = opsRows_(ensureOpsSheet_(getDb_())).filter(function (o) {
+    return (o.status === OST.DONE || (!onlyDone && o.status === OST.WAIT)) && isYmd_(o.date) && o.date >= OPS_RPT_START && o.date <= to;
+  }).sort(function (a, b) { return (a.date + a.created) < (b.date + b.created) ? -1 : 1; });
+  const by = {};
+  rows.forEach(function (o) {
+    const x = by[o.date] || (by[o.date] = { items: [], equip: [], weather: '', staff: 0, worker: 0, safety: 0, src: 'erp', n: 0 });
+    opsRptItems_(o.memo).forEach(function (it) { if (x.items.indexOf(it) < 0) x.items.push(it); });
+    if (String(o.equip || '').trim()) x.equip.push(String(o.equip).trim());
+    if (!x.weather && o.weather) x.weather = o.weather;
+    x.staff = Math.max(x.staff, Number(o.staff) || 0); x.worker = Math.max(x.worker, Number(o.worker) || 0); x.safety = Math.max(x.safety, Number(o.safety) || 0); x.n++;
+  });
+  Object.keys(OPS_RPT_PRE).forEach(function (d) {
+    if (by[d] || d > to) return; const p = OPS_RPT_PRE[d];
+    by[d] = { items: p.memo ? p.memo.split('\n') : [], equip: [], weather: p.weather || '', staff: p.staff || 0, worker: 0, safety: 0, src: 'pre', n: 0 };
+  });
+  Object.keys(by).forEach(function (d) {
+    const x = by[d], lines = [];
+    x.items.forEach(function (it) { opsRptWrap_(it).forEach(function (l) { lines.push(l); }); });
+    x.lines = lines.slice(0, OPS_RPT_LINES);
+    x.notes = lines.slice(OPS_RPT_LINES).map(function (l) { return '작업내용(계속) ' + l.trim(); });
+    x.equip.forEach(function (e) { opsRptWrap_('장비·자재: ' + e, 80).forEach(function (l) { x.notes.push(l); }); });
+    x.notes = x.notes.slice(0, OPS_RPT_NOTES);
+  });
+  return by;
+}
+function opsRptPct_(v) { return v === null || v === undefined ? '' : (Math.round(v * 100) / 100).toFixed(2) + '%'; }
+
+/** 양식 시트(1~108행, A~O열)에 하루치 값을 넣는다. 셀 위치는 「11월 작업일보 양식.xlsx」와 같다. */
+function opsRptFill_(sh, d, by, mon) {
+  const x = by[d] || null, prevD = ymdAdd_(d, -1), px = by[prevD] || null;
+  const cum = { staff: 0, worker: 0, safety: 0 };
+  Object.keys(by).forEach(function (k) { if (k < d) { cum.staff += by[k].staff; cum.worker += by[k].worker; cum.safety += by[k].safety; } });
+  const holi = function (k) { return dashHoliday_(k) || opsRptDow_(k) === '일'; };
+  const linesOf = function (y, k) { return y ? y.lines : (holi(k) ? ['휴무'] : []); };
+  const col = function (arr, n) { const out = []; for (let i = 0; i < n; i++) out.push([arr[i] || '']); return out; };
+  const plan = opsRptPlanPct_(d, mon);
+  sh.getRange('C5').setValue(plan === null ? '' : Math.round(plan * 100) / 10000).setNumberFormat('0.00%');
+  sh.getRange('J8').setValue(d.slice(0, 4) + '년 ' + d.slice(5, 7) + '월 ' + d.slice(8, 10) + '일 (' + opsRptDow_(d) + '요일)');
+  sh.getRange('N8').setValue('날씨: ' + (x && x.weather ? x.weather : ''));
+  sh.getRange('C11:C22').setValues(col(linesOf(px, prevD), OPS_RPT_LINES));
+  sh.getRange('I11:I22').setValues(col(linesOf(x, d), OPS_RPT_LINES));
+  sh.getRange('C24:C28').setValues(col(px ? px.notes : [], OPS_RPT_NOTES));
+  sh.getRange('I24:I28').setValues(col(x ? x.notes : [], OPS_RPT_NOTES));
+  const ppl = function (row, k) {
+    const today = x ? x[k] : 0;
+    sh.getRange('C' + row + ':E' + row).setValues([[cum[k], today || '', cum[k] + today]]);
+  };
+  ppl(87, 'staff'); ppl(89, 'worker');
+  if (cum.safety || (x && x.safety)) { sh.getRange('A95').setValue('열차감시원·신호수'); ppl(95, 'safety'); }
+}
+
+const OPS_RPT_TPL = '1WAzDwQDFddqBGzoxaawV2-zDmpfRdnG33CzChjYIM-Y'; // 「작업일보 출력 양식(ERP)」 구글 시트(00 착공관련 서류\작업일보). 1장 = 108행 × A~O열
+/** 날짜마다 양식 탭을 복사해 값을 넣고 1쪽(1~56행)·2쪽(57~108행)으로 나눈 임시 시트를 A4 PDF로 내보낸다. 임시 시트는 지운다. */
+function opsRptPdf_(days, by, mon) {
+  const tpl = SpreadsheetApp.openById(OPS_RPT_TPL).getSheets()[0];
+  const tmp = SpreadsheetApp.create('작업일보_출력_임시_' + nowStr_().replace(/\D/g, ''));
+  try {
+    const first = tmp.getSheets()[0];
+    days.forEach(function (d) {
+      const p1 = tpl.copyTo(tmp).setName(d + ' (1)');
+      if (p1.getMaxColumns() > 15) p1.deleteColumns(16, p1.getMaxColumns() - 15);
+      if (p1.getMaxRows() > 108) p1.deleteRows(109, p1.getMaxRows() - 108);
+      opsRptFill_(p1, d, by, mon);
+      SpreadsheetApp.flush();
+      const p2 = p1.copyTo(tmp).setName(d + ' (2)');
+      try { p2.getImages().forEach(function (im) { im.remove(); }); } catch (e) { } // 도장은 1쪽에만
+      p1.deleteRows(57, 52); p2.deleteRows(1, 56);
+    });
+    tmp.deleteSheet(first);
+    SpreadsheetApp.flush();
+    const url = 'https://docs.google.com/spreadsheets/d/' + tmp.getId() + '/export?format=pdf&size=A4&portrait=true&fitw=true&gridlines=false&printtitle=false&sheetnames=false&pagenum=UNDEFINED&fzr=false&horizontal_alignment=CENTER&vertical_alignment=TOP&top_margin=0.5&bottom_margin=0.5&left_margin=0.45&right_margin=0.45';
+    const res = UrlFetchApp.fetch(url, { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
+    if (res.getResponseCode() !== 200) throw new Error('PDF 내보내기 실패 ' + res.getResponseCode());
+    return res.getBlob();
+  } finally {
+    try { DriveApp.getFileById(tmp.getId()).setTrashed(true); } catch (e) { }
+  }
+}
+
+function opsRptFolder_(ym) {
+  const root = DriveApp.getFolderById(OPS_RPT_FOLDER);
+  const sub = function (parent, name) { const it = parent.getFoldersByName(name); return it.hasNext() ? it.next() : parent.createFolder(name); };
+  return sub(sub(root, 'ERP출력'), ym);
+}
+
+/** 작업일보 출력: mode = day(기본)|range|month. 받은 기간 중 일보가 있는 날(휴무 기록 포함)만 쪽을 만든다. */
+function opsReport_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s, today = nowStr_().slice(0, 10), mode = ['day', 'range', 'month'].indexOf(String(req.mode)) >= 0 ? String(req.mode) : 'day';
+  let from, to;
+  if (mode === 'month') {
+    const ym = String(req.month || today.slice(0, 7)); if (!/^\d{4}-\d{2}$/.test(ym)) return fail_('PARAM', '월을 YYYY-MM으로 보내 주세요.');
+    from = ym + '-01'; to = opsRptMonthEnd_(ym); if (to > today) to = today;
+  } else if (mode === 'range') {
+    from = String(req.from || ''); to = String(req.to || '');
+    if (!isYmd_(from) || !isYmd_(to) || from > to) return fail_('PARAM', '시작일과 종료일을 확인해 주세요.');
+    if (to > today) to = today;
+  } else {
+    from = to = String(req.date || today); if (!isYmd_(from)) return fail_('PARAM', '날짜를 확인해 주세요.');
+    if (from > today) return fail_('PARAM', '오늘 이후 날짜는 출력할 수 없습니다.');
+  }
+  if (from < OPS_RPT_START) from = OPS_RPT_START;
+  if (from > to) return fail_('PARAM', '출력할 날짜가 없습니다.');
+  const span = (Date.parse(to) - Date.parse(from)) / 86400000 + 1;
+  if (span > OPS_RPT_MAXDAYS) return fail_('PARAM', '한 번에 ' + OPS_RPT_MAXDAYS + '일까지 출력할 수 있습니다.');
+  const by = opsRptDays_(!!req.onlyDone, to), mon = opsRptMon_(), days = [];
+  for (let d = from; d <= to; d = ymdAdd_(d, 1)) if (mode === 'day' || by[d]) days.push(d);
+  if (!days.length) return fail_('EMPTY', from + ' ~ ' + to + ' 기간에 출력할 작업일보가 없습니다.');
+  const name = '작업일보_' + (mode === 'day' ? from : mode === 'month' ? from.slice(0, 7) + (to < opsRptMonthEnd_(from.slice(0, 7)) ? '(~' + to.slice(5) + ')' : '') : from + '~' + to) + (req.onlyDone ? '_확인완료' : '') + '.pdf';
+  let blob;
+  try { blob = opsRptPdf_(days, by, mon).setName(name); } catch (e) { return fail_('PDF', '작업일보 PDF를 만들지 못했습니다. (' + e.message + ')'); }
+  let url = '';
+  try { const f = opsRptFolder_(from.slice(0, 7)).createFile(blob); url = 'https://drive.google.com/file/d/' + f.getId() + '/view'; } catch (e) { url = ''; }
+  audit_(me.id, 'opsReport ' + mode + ' ' + from + '~' + to, 'OK ' + days.length + '일');
+  const bytes = blob.getBytes();
+  return { ok: true, name: name, url: url, days: days.length, from: from, to: to, b64: bytes.length <= 8 * 1024 * 1024 ? Utilities.base64Encode(bytes) : '' };
 }
 
 /** 본사 제출·확인 표시. 제출: 현장소장·공무, 확인: 현장소장, 취소: 현장소장(사유 필수). 마감된 달만. */

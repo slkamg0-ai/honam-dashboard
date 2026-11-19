@@ -1,4 +1,4 @@
-/* HN28 현장 ERP v2 — 4단계: 작업일보(출역·장비·작업내용) 입력·확인 화면
+/* HN28 현장 ERP v2 — 4단계: 작업일보(출역·장비·작업내용) 입력·확인 화면 · v2.28 작업일보 출력(일일·기간·월간 PDF)
  * index.html 이 열어 둔 window.ERP2(api·me·showView 등)만 쓴다. 서버가 보낸 글자는 모두 textContent 로만 넣는다. */
 (function () {
   'use strict';
@@ -305,6 +305,53 @@
       });
     });
   }
+  // ── 작업일보 출력(v2.28): 일일(기본)·기간·월간 → 서버가 감리단 보고 양식 PDF를 만든다 ──
+  var rptMode = 'day', rptBusy = false;
+  function rptModes() {
+    var box = $('oRptMode'); box.textContent = '';
+    [['day', '일일'], ['range', '기간'], ['month', '월간']].forEach(function (m) {
+      var b = el('button', rptMode === m[0] ? 'sel' : '', m[1]); b.type = 'button';
+      b.onclick = function () { rptMode = m[0]; rptModes(); };
+      box.appendChild(b);
+    });
+    show('oRptDayW', rptMode === 'day'); show('oRptRangeW', rptMode === 'range'); show('oRptMonW', rptMode === 'month');
+  }
+  function rptDefaults() {
+    var t = M && M.today ? M.today : new Date().toISOString().slice(0, 10);
+    if (!$('oRptDate').value) $('oRptDate').value = t;
+    if (!$('oRptTo').value) $('oRptTo').value = t;
+    if (!$('oRptFrom').value) $('oRptFrom').value = t.slice(0, 8) + '01';
+    if (!$('oRptMonth').value) $('oRptMonth').value = month || t.slice(0, 7);
+    $('oRptDate').max = $('oRptTo').max = $('oRptFrom').max = t;
+  }
+  E.onEnter.push(function () { rptMode = 'day'; rptModes(); setTimeout(rptDefaults, 0); });
+  $('oRptDate').onfocus = $('oRptFrom').onfocus = $('oRptMonth').onfocus = rptDefaults;
+  rptModes();
+  function rptDownload(name, b64) {
+    var bin = atob(b64), a = new Uint8Array(bin.length); for (var k = 0; k < bin.length; k++) a[k] = bin.charCodeAt(k);
+    var url = URL.createObjectURL(new Blob([a], { type: 'application/pdf' }));
+    var lk = document.createElement('a'); lk.href = url; lk.download = name; document.body.appendChild(lk); lk.click(); lk.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+  }
+  $('oRptGo').onclick = function () {
+    if (rptBusy) return; rptDefaults();
+    var req = { mode: rptMode, onlyDone: $('oRptDone').checked };
+    if (rptMode === 'day') { req.date = $('oRptDate').value; if (!req.date) { setMsg('oRptMsg', '날짜를 고르세요.'); return; } }
+    if (rptMode === 'range') { req.from = $('oRptFrom').value; req.to = $('oRptTo').value; if (!req.from || !req.to || req.from > req.to) { setMsg('oRptMsg', '시작일과 종료일을 확인하세요.'); return; } }
+    if (rptMode === 'month') { req.month = $('oRptMonth').value; if (!/^\d{4}-\d{2}$/.test(req.month)) { setMsg('oRptMsg', '월을 고르세요.'); return; } }
+    rptBusy = true; $('oRptGo').disabled = true; $('oRptOut').textContent = '';
+    setMsg('oRptMsg', rptMode === 'day' ? 'PDF를 만드는 중… (10초쯤)' : 'PDF를 만드는 중… 날짜가 많으면 1~3분 걸립니다.', true);
+    E.api('opsReport', req, 330000).then(function (r) {
+      rptBusy = false; $('oRptGo').disabled = false;
+      if (E.authLost(r)) return;
+      if (!r || !r.ok) { setMsg('oRptMsg', (r && r.error === 'UNKNOWN_ACTION') ? '서버를 v2.28로 새로 배포하면 출력할 수 있습니다.' : ((r && r.message) || 'PDF를 만들지 못했습니다.')); return; }
+      setMsg('oRptMsg', r.name + ' — ' + r.days + '일분' + (r.from !== r.to ? ' (' + r.from + ' ~ ' + r.to + ')' : ''), true);
+      var out = $('oRptOut');
+      if (r.b64) { var b = el('button', 'pri', 'PDF 내려받기'); b.type = 'button'; b.onclick = function () { rptDownload(r.name, r.b64); }; out.appendChild(b); rptDownload(r.name, r.b64); }
+      if (r.url) { var a = document.createElement('a'); a.href = r.url; a.target = '_blank'; a.rel = 'noopener'; a.textContent = '드라이브에서 열기'; a.style.display = 'inline-block'; a.style.marginTop = '8px'; out.appendChild(el('div', '', '')); out.lastChild.appendChild(a); }
+    });
+  };
+
   $('oDraft').onclick = function () { saveForm(false); };
   $('oSubmit').onclick = function () { saveForm(true); };
 })();

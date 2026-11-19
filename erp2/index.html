@@ -546,6 +546,18 @@
           <div class="msg" id="oMsg"></div>
           <button class="pri" id="oNew">+ 작업일보 쓰기</button>
         </div>
+        <div class="panel" id="oRpt">
+          <h3>작업일보 출력 <small style="font-weight:500;color:#64748b">감리단 보고 양식 PDF (A4, 하루 2쪽)</small></h3>
+          <div class="chips" id="oRptMode"></div>
+          <div id="oRptDayW"><label for="oRptDate">날짜</label><input type="date" id="oRptDate"></div>
+          <div id="oRptRangeW" class="grid2 hide"><div><label for="oRptFrom">시작일</label><input type="date" id="oRptFrom"></div><div><label for="oRptTo">종료일</label><input type="date" id="oRptTo"></div></div>
+          <div id="oRptMonW" class="hide"><label for="oRptMonth">월</label><input type="month" id="oRptMonth"></div>
+          <label class="chk"><input type="checkbox" id="oRptDone"> 확인완료 건만 <small style="font-weight:500;color:#64748b">끄면 확인대기 건도 넣습니다</small></label>
+          <button type="button" class="pri" id="oRptGo">PDF 만들기</button>
+          <div class="desc" style="margin-top:6px">같은 날 여러 건은 한 장으로 합칩니다. 기간·월간은 일보가 있는 날만(휴무 포함) 쪽을 만들고, 한 번에 62일까지 출력합니다. 만든 PDF는 「작업일보\ERP출력」 폴더에도 남습니다.</div>
+          <div class="msg" id="oRptMsg"></div>
+          <div id="oRptOut"></div>
+        </div>
       </div>
       <div id="oDetail" class="hide"></div>
       <div id="oForm" class="hide">
