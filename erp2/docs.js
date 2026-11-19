@@ -479,6 +479,38 @@
     g.appendChild(sp);
   }
 
+  // ── 출력본(v2.30): 서버가 갑지·본문·붙임을 PDF로 준비 → 사무실 PC가 한글 변환·병합 → 화면이 다 될 때까지 확인 ──
+  var bundleTimer = null;
+  function bundleMsg(text, info) { var m = document.getElementById('dDMsg'); if (m) { m.className = 'msg' + (info ? ' info' : ''); m.textContent = text; } }
+  function startBundle(i, auto) {
+    if (bundleTimer) { clearTimeout(bundleTimer); bundleTimer = null; }
+    bundleMsg((auto ? '확정했습니다. ' : '') + '출력본을 준비하는 중…', true);
+    E.api('docBundle', { id: i.id }, 300000).then(function (r) {
+      if (E.authLost(r)) return;
+      if (!r || !r.ok) { bundleMsg((r && r.error === 'UNKNOWN_ACTION') ? '서버를 v2.30으로 새로 배포하면 출력본을 만들 수 있습니다.' : ((r && r.message) || '출력본을 준비하지 못했습니다.')); return; }
+      if (r.warn && r.warn.length) i._bwarn = r.warn;
+      pollBundle(r.item, Date.now());
+    });
+  }
+  function pollBundle(i, t0) {
+    var sec = Math.round((Date.now() - t0) / 1000);
+    E.api('docBundleStatus', { id: i.id }, 30000).then(function (r) {
+      bundleTimer = null;
+      if (E.authLost(r)) return;
+      var cur = document.getElementById('dDetail');
+      if (!r || !r.ok) { bundleMsg((r && r.message) || '출력본 상태를 확인하지 못했습니다.'); return; }
+      if (r.state === 'done') {
+        var w = (r.print && r.print.warn && r.print.warn.length) ? '\n※ ' + r.print.warn.join(' ') : '';
+        if (cur && !cur.classList.contains('hide')) showDetail(r.item, '출력본이 만들어졌습니다. 「출력본 PDF 열기」에서 바로 인쇄하세요.' + w);
+        return;
+      }
+      if (r.state === 'error') { bundleMsg('PC 변환기 오류: ' + r.err + '\n(고친 뒤 「출력본 다시 만들기」를 누르세요)'); return; }
+      if (sec > 600) { bundleMsg('사무실 PC 변환기가 아직 응답하지 않습니다. PC가 켜져 있고 구글 드라이브가 실행 중인지 확인해 주세요. 요청은 남아 있어 PC가 켜지면 자동으로 만들어집니다.'); return; }
+      bundleMsg('사무실 PC에서 한글 변환·합치는 중… (' + sec + '초, 보통 1~3분)', true);
+      if (cur && !cur.classList.contains('hide')) bundleTimer = setTimeout(function () { pollBundle(i, t0); }, 15000);
+    });
+  }
+
   function showDetail(i, flash) {
     var mine = i.authorId === myId();
     var box = $('dDetail'); box.textContent = ''; pane('detail');
@@ -497,6 +529,7 @@
     kvLink(p, '문서', i.link ? '문서 열기 (구글 문서)' : '', i.link);
     kvLink(p, '폴더', i.folderUrl ? '드라이브 폴더 열기' : '', i.folderUrl);
     if (i.gapji) kvLink(p, '갑지 PDF', '갑지 PDF 열기', i.gapji);
+    if (i.print && i.print.url) kvLink(p, '출력본', '출력본 PDF 열기 (갑지·본문·붙임 한 파일)', i.print.url);
     if (i.pdf) kvLink(p, '확정본', '확정 PDF 열기', i.pdf);
     kv(p, '작성', i.author + ' · ' + i.created);
     if (i.reviewer && (i.status === '승인대기' || i.status === '확정')) kv(p, '검토', i.reviewer + ' · ' + i.reviewedAt);
@@ -540,6 +573,7 @@
         if (fail('dDMsg', r)) return;
         if (!r.ok) return;
         showDetail(r.item, okText + ((r.warn && r.warn.length) ? '\n※ ' + r.warn.join(' ') : ''));
+        if ((action === 'submitDoc' || action === 'approveDoc') && r.item && r.item.status === '확정' && r.item.kind !== '접수') startBundle(r.item, true); // 확정되면 출력본을 바로 만든다
       });
     }
     /** 사유·메모를 적는 칸을 버튼 자리에 연다 */
@@ -630,6 +664,7 @@
     }
     if (i.kind !== '접수' && i.status === '확정' && isGm()) btn(i.mail ? '본사로 메일 다시 보내기' : '본사로 메일 보내기', i.mail ? '' : 'pri', mailBox).style.marginTop = '0';
     if (i.kind !== '접수' && i.status === '확정' && (mine || isGm())) btn(i.gapji ? '갑지 PDF 다시 만들기' : '갑지 PDF 만들기', '', function () { act('gapjiDoc', { id: i.id }, '갑지 PDF를 만들었습니다.'); });
+    if (i.kind !== '접수' && i.status === '확정' && (mine || isGm())) btn(i.print && i.print.url ? '출력본 다시 만들기' : '출력본 만들기 (인쇄용 PDF 한 파일)', i.print && i.print.url ? '' : 'pri', function () { startBundle(i, false); }).style.marginTop = '0';
     if (i.kind !== '접수' && i.status === '확정' && i.seal) btn('무결성 확인', '', function () { verify(i); });
     if (i.kind !== '접수' && i.status === '확정' && isMgr()) btn('다시 작성(개정)', 'warn', function () {
       noteBox('다시 작성 확정', '다시 작성하는 사유 (예: 붙임 보고서 수정본으로 교체) — 같은 번호로 「작성중」이 되고, 지금 확정본·갑지·봉인은 _구버전 폴더와 개정 이력에 남습니다. 본사 제출·메일 표시는 비워지니 다시 확정한 뒤 다시 보내 주세요.', true, 'warn', function (v) {
@@ -649,6 +684,7 @@
     if (i.status === '검토대기' && mine) p.appendChild(el('div', 'desc', '공무(또는 현장소장)의 검토를 기다리는 중입니다. 제출한 문서는 고칠 수 없습니다.'));
     if (i.status === '승인대기' && !isMgr()) p.appendChild(el('div', 'desc', '현장소장의 승인을 기다리는 중입니다.'));
     if (!btns.childNodes.length) btns.parentNode.removeChild(btns);
+    if (i.print && i.print.reqAt && !i.print.url && !bundleTimer) pollBundle(i, Date.now());
   }
 
   // ── 양식 ──

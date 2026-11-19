@@ -1,6 +1,7 @@
 /**
  * HN28 현장 ERP v2 — 서버 (Apps Script)  1단계 로그인·직원 관리 / 2단계 경비 입력·결재·문서번호·영수증 / 3단계 월 마감·누락분 / 4단계 작업일보
  *  v2.28: 작업일보 출력(opsReport) — 감리단 보고 양식 PDF, 일일·기간·월간
+ *  v2.30: 출력본(docBundle) — 버튼 한 번에 갑지+본문+붙임을 PDF 하나로. 한글(hwp·hwpx)은 사무실 PC 변환기(hn28_print.py)가 변환·병합
  *  v2.29: 확정 문서 「다시 작성(개정)」(reviseDoc) — 같은 번호로 작성중으로 되돌리고 이전 확정본·갑지·봉인·첨부는 _구버전 폴더와 개정 이력에 남긴다
  *
  * 화면(GitHub Pages)이 보낸 요청에 JSON으로 답한다. 데이터는 구글 시트(HN28_ERP_DB)에만 둔다.
@@ -128,6 +129,8 @@ function route_(req) {
       case 'getDocFile': out = getDocFile_(req); break;
       case 'verifyDoc': out = verifyDoc_(req); break;
       case 'reviseDoc': out = reviseDoc_(req); break;
+      case 'docBundle': out = docBundle_(req); break;
+      case 'docBundleStatus': out = docBundleStatus_(req); break;
       case 'mailPreview': out = mailPreview_(req); break;
       case 'sendHqMail': out = sendHqMail_(req); break;
       case 'dashboard': out = dashboard_(req); break;
@@ -1769,7 +1772,7 @@ const DOC_FIELDS = [['id', 'ID'], ['docNo', '문서번호'], ['kind', '구분'],
   ['due', '회신기한'], ['replied', '회신여부'], ['link', '문서링크'], ['docId', '문서ID'], ['folderId', '폴더ID'], ['pdf', '확정PDF'], ['ref', '참조'],
   ['summary', '본문요지'], ['attach', '붙임'], ['note', '비고'], ['authorId', '작성자ID'], ['author', '작성자'], ['reviewer', '검토자'], ['reviewedAt', '검토일시'],
   ['approver', '승인자'], ['approvedAt', '승인일시'], ['reason', '반려사유'], ['hq', '본사상태'], ['hqBy', '본사처리자'], ['hqAt', '본사처리일시'],
-  ['hqSubmitAt', '본사제출일시'], ['hqNote', '본사메모'], ['created', '작성일시'], ['updated', '수정일시'], ['cat', '문서구분'], ['amount', '집행금액'], ['gapji', '갑지PDF'], ['files', '첨부파일'], ['seal', '문서해시'], ['mail', '본사메일'], ['rev', '개정차수'], ['revs', '개정이력']];
+  ['hqSubmitAt', '본사제출일시'], ['hqNote', '본사메모'], ['created', '작성일시'], ['updated', '수정일시'], ['cat', '문서구분'], ['amount', '집행금액'], ['gapji', '갑지PDF'], ['files', '첨부파일'], ['seal', '문서해시'], ['mail', '본사메일'], ['rev', '개정차수'], ['revs', '개정이력'], ['print', '출력본']];
 // 문서구분(갑지의 분류): 품의와 공문에만 있다. 이름만 저장한다.
 const DOC_CATS = { '품의': ['현장품의', '본사품의', '변경품의'], '공문': ['본사문서', '대관공문', '안전점검', '기타'] };
 const DOC_HEADERS = DOC_FIELDS.map(function (f) { return f[1]; });
@@ -1831,7 +1834,7 @@ function docPublic_(o) {
     authorId: o.authorId, author: o.author, reviewer: o.reviewer, reviewedAt: o.reviewedAt, approver: o.approver, approvedAt: o.approvedAt, reason: o.reason,
     hq: { state: o.hq, by: o.hqBy, at: o.hqAt, submitAt: o.hqSubmitAt, note: o.hqNote }, created: o.created, updated: o.updated, cat: o.cat, amount: o.amount, gapji: o.gapji,
     files: docFilesOf_(o).map(docFilePublic_), seal: o.seal || '', mail: docMailInfo_(o),
-    rev: docRevNo_(o), revs: docRevsOf_(o).map(function (r) { return { r: r.r, at: r.at, by: r.by, reason: r.reason, seal: r.seal, approvedAt: r.approvedAt, pdf: r.pdf, gapji: r.gapji, hq: r.hq, mail: r.mail, files: (r.files || []).map(function (f) { return { n: f.n, name: f.name, sha: f.sha }; }) }; })
+    print: docPrintOf_(o), rev: docRevNo_(o), revs: docRevsOf_(o).map(function (r) { return { r: r.r, at: r.at, by: r.by, reason: r.reason, seal: r.seal, approvedAt: r.approvedAt, pdf: r.pdf, gapji: r.gapji, hq: r.hq, mail: r.mail, files: (r.files || []).map(function (f) { return { n: f.n, name: f.name, sha: f.sha }; }) }; })
   };
 }
 
@@ -2359,6 +2362,9 @@ function reviseDoc_(req) {
     const pdfId = driveIdOf_(o.pdf), gjId = driveIdOf_(o.gapji);
     if (pdfId && !docMoveToOld_(o, pdfId, tag)) warn.push('이전 확정 PDF를 _구버전 폴더로 옮기지 못했습니다(파일은 그대로 있습니다).');
     if (gjId && !docMoveToOld_(o, gjId, tag)) warn.push('이전 갑지 PDF를 _구버전 폴더로 옮기지 못했습니다(파일은 그대로 있습니다).');
+    const prOld = docPrintOf_(o);
+    if (prOld && prOld.url) docMoveToOld_(o, driveIdOf_(prOld.url), tag);
+    o.print = '';
     const revs = docRevsOf_(o);
     revs.push({ r: r0, at: nowStr_(), by: me.name, reason: reason, seal: o.seal, approver: o.approver, approvedAt: o.approvedAt, reviewer: o.reviewer, reviewedAt: o.reviewedAt,
       pdf: o.pdf, gapji: o.gapji, hq: o.hq ? { state: o.hq, by: o.hqBy, at: o.hqAt, submitAt: o.hqSubmitAt, note: o.hqNote } : null, mail: o.mail || '',
@@ -2375,6 +2381,119 @@ function reviseDoc_(req) {
   } finally {
     lock.releaseLock();
   }
+}
+
+// ── 출력본 v2.30: 갑지 + 본문 + 붙임 → PDF 하나 ──
+// 서버: 공문 폴더\_출력 에 순서대로 00_갑지.pdf, 01_본문.pdf, 02_첨부01_….pdf(엑셀·워드·그림은 PDF로 바꿈, 한글은 원본 복사)와 _출력요청.json 을 둔다.
+// 사무실 PC(hn28_print.py, 1분마다): 구글 드라이브(G:)에서 요청을 찾아 한글 파일을 PDF로 바꾸고 순서대로 합쳐 공문 폴더에 「…_출력본.pdf」를 둔다.
+const PRT_SUB = '_출력', PRT_REQ = '_출력요청.json', PRT_ERR = '_출력오류.txt';
+const PRT_GCONV = { xlsx: 'spreadsheet', xls: 'spreadsheet', csv: 'spreadsheet', docx: 'document', doc: 'document', txt: 'document', pptx: 'presentation', ppt: 'presentation' };
+function docPrintOf_(o) { try { const x = JSON.parse(o.print || 'null'); return x && typeof x === 'object' ? x : null; } catch (e) { return null; } }
+function docPrintName_(o) { return o.docNo + '_' + safeName_(o.title) + docRevTag_(o) + '_출력본.pdf'; }
+function prtSub_(folder) { const it = folder.getFoldersByName(PRT_SUB); return it.hasNext() ? it.next() : folder.createFolder(PRT_SUB); }
+/** 구글 형식으로 바꿔(임시) PDF 로 내보낸다. */
+function prtConvPdf_(fileId, kind, tmpFolderId) {
+  const res = UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '/copy', { method: 'post', contentType: 'application/json',
+    payload: JSON.stringify({ name: '_출력변환_임시', mimeType: 'application/vnd.google-apps.' + kind, parents: [tmpFolderId] }),
+    headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
+  if (res.getResponseCode() !== 200) throw new Error('변환 실패 ' + res.getResponseCode());
+  const nid = JSON.parse(res.getContentText()).id;
+  try { return DriveApp.getFileById(nid).getAs('application/pdf'); } finally { try { DriveApp.getFileById(nid).setTrashed(true); } catch (e) { } }
+}
+function prtName_(n, name) { return pad_(n, 2) + '_' + String(name).replace(/[\\\/:*?"<>|#%]+/g, '_').slice(0, 60); }
+
+/** 출력본 요청을 만든다. 확정된 품의·공문, 쓴 사람 또는 공무·현장소장. */
+function docBundle_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s;
+  const sh0 = ensureDocSheet_(getDb_());
+  const o = docFind_(sh0, String(req.id || ''));
+  if (!o) return fail_('NOT_FOUND', '없는 문서입니다.');
+  if (o.kind === '접수') return fail_('STATE', '받은 문서는 출력본을 만들지 않습니다.');
+  if (o.status !== DST.DONE) return fail_('STATE', '확정된 문서만 출력본을 만듭니다.');
+  if (o.authorId !== me.id && me.role !== MANAGER_ROLE && me.role !== '공무') return fail_('FORBIDDEN', '쓴 사람 또는 공무·현장소장만 만들 수 있습니다.');
+  if (!o.folderId) return fail_('FOLDER', '이 문서에는 드라이브 폴더가 없습니다.');
+  let folder; try { folder = DriveApp.getFolderById(o.folderId); } catch (e) { return fail_('FOLDER', '문서 폴더를 열 수 없습니다.'); }
+  const sub = prtSub_(folder);
+  // 지난 출력 준비물은 비운다(이 폴더는 출력용으로만 쓴다)
+  const old = sub.getFiles(); while (old.hasNext()) { try { old.next().setTrashed(true); } catch (e) { } }
+  const parts = [], warn = [];
+  let k = 0;
+  const put = function (name, blob) { const f = sub.createFile(blob.setName(name)); parts.push({ path: PRT_SUB + '/' + name, conv: /\.(hwpx?|HWPX?)$/.test(name) ? 'hwp' : 'pdf' }); return f; };
+  // 1) 갑지 — 지금 상태로 새로 만든다
+  try { put(prtName_(k++, '갑지.pdf'), Utilities.newBlob(gapjiHtml_(o), 'text/html', 'g.html').getAs('application/pdf')); } catch (e) { warn.push('갑지 PDF를 만들지 못했습니다.'); }
+  // 2) 본문 — 구글 문서면 PDF로, 한글·워드면 그 파일로
+  const mainId = o.docId || driveIdOf_(o.link);
+  if (mainId) {
+    try {
+      const mf = DriveApp.getFileById(mainId);
+      const mm = mf.getMimeType(), mn = mf.getName(), ext = docFileExt_(mn);
+      if (mm === MimeType.GOOGLE_DOCS) put(prtName_(k++, '본문.pdf'), mf.getAs('application/pdf'));
+      else if (ext === 'pdf') put(prtName_(k++, '본문.pdf'), mf.getBlob());
+      else if (ext === 'hwp' || ext === 'hwpx') put(prtName_(k++, '본문.' + ext), mf.getBlob());
+      else if (PRT_GCONV[ext]) put(prtName_(k++, '본문.pdf'), prtConvPdf_(mainId, PRT_GCONV[ext], sub.getId()));
+      else warn.push('본문 파일 형식(.' + ext + ')은 출력본에 넣지 못했습니다.');
+    } catch (e) { warn.push('본문 파일을 PDF로 만들지 못했습니다.'); }
+  } else warn.push('본문 문서 링크가 없어 본문은 빠졌습니다.');
+  // 3) 붙임 — 번호 순서대로
+  docFilesOf_(o).slice().sort(function (a, b) { return (Number(a.n) || 0) - (Number(b.n) || 0); }).forEach(function (f) {
+    const ext = docFileExt_(f.name), base = '첨부' + pad_(f.n, 2) + '_' + f.name.replace(/\.[^.]+$/, '');
+    try {
+      const df = DriveApp.getFileById(f.fid);
+      if (ext === 'pdf') put(prtName_(k++, base + '.pdf'), df.getBlob());
+      else if (ext === 'hwp' || ext === 'hwpx') put(prtName_(k++, base + '.' + ext), df.getBlob());
+      else if (ext === 'jpg' || ext === 'jpeg' || ext === 'png') put(prtName_(k++, base + '.pdf'), df.getAs('application/pdf'));
+      else if (PRT_GCONV[ext]) put(prtName_(k++, base + '.pdf'), prtConvPdf_(f.fid, PRT_GCONV[ext], sub.getId()));
+      else warn.push('「' + f.name + '」(.' + ext + ')은 인쇄 형식이 아니라 출력본에서 뺐습니다.');
+    } catch (e) { warn.push('「' + f.name + '」을(를) PDF로 만들지 못했습니다.'); }
+  });
+  if (!parts.length) return fail_('EMPTY', '출력본에 넣을 내용이 없습니다.');
+  const at = nowStr_();
+  const reqObj = { v: 1, id: o.id, docNo: o.docNo, at: at, out: docPrintName_(o), parts: parts, hwp: parts.filter(function (p) { return p.conv === 'hwp'; }).length };
+  sub.createFile(Utilities.newBlob(JSON.stringify(reqObj, null, 1), 'application/json', PRT_REQ));
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const sh = ensureDocSheet_(getDb_());
+    const o2 = docFind_(sh, o.id);
+    o2.print = JSON.stringify({ reqAt: at, by: me.name, n: parts.length, hwp: reqObj.hwp, warn: warn, url: '', at: '' });
+    docWrite_(sh, o2, o2._row);
+    audit_(me.id, '문서출력본요청', o.docNo + ' ' + parts.length + '건');
+    return { ok: true, item: docPublic_(o2), warn: warn };
+  } finally { lock.releaseLock(); }
+}
+
+/** 출력본이 다 만들어졌는지 본다. 다 됐으면 링크를 기록한다. */
+function docBundleStatus_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const sh0 = ensureDocSheet_(getDb_());
+  const o = docFind_(sh0, String(req.id || ''));
+  if (!o) return fail_('NOT_FOUND', '없는 문서입니다.');
+  const pr = docPrintOf_(o);
+  if (!pr || !pr.reqAt) return { ok: true, state: 'none' };
+  if (pr.url) return { ok: true, state: 'done', print: pr, item: docPublic_(o) };
+  let folder; try { folder = DriveApp.getFolderById(o.folderId); } catch (e) { return fail_('FOLDER', '문서 폴더를 열 수 없습니다.'); }
+  const reqTime = new Date(pr.reqAt.replace(' ', 'T') + '+09:00').getTime() - 60000;
+  const it = folder.getFilesByName(docPrintName_(o));
+  let hit = null;
+  while (it.hasNext()) { const f = it.next(); if (!f.isTrashed() && f.getLastUpdated().getTime() >= reqTime && (!hit || f.getLastUpdated() > hit.getLastUpdated())) hit = f; }
+  const sub = prtSub_(folder);
+  const ei = sub.getFilesByName(PRT_ERR);
+  const err = ei.hasNext() ? ei.next().getBlob().getDataAsString('UTF-8').slice(0, 300) : '';
+  const pending = sub.getFilesByName(PRT_REQ).hasNext();
+  if (!hit) return { ok: true, state: err ? 'error' : 'pending', err: err, pending: pending, print: pr };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const sh = ensureDocSheet_(getDb_());
+    const o2 = docFind_(sh, o.id);
+    const p2 = docPrintOf_(o2) || pr;
+    p2.url = 'https://drive.google.com/file/d/' + hit.getId() + '/view';
+    p2.at = Utilities.formatDate(hit.getLastUpdated(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss');
+    o2.print = JSON.stringify(p2);
+    docWrite_(sh, o2, o2._row);
+    return { ok: true, state: 'done', print: p2, item: docPublic_(o2) };
+  } finally { lock.releaseLock(); }
 }
 
 function docValidate_(req, kind) {
