@@ -1,6 +1,7 @@
 /**
  * HN28 현장 ERP v2 — 서버 (Apps Script)  1단계 로그인·직원 관리 / 2단계 경비 입력·결재·문서번호·영수증 / 3단계 월 마감·누락분 / 4단계 작업일보
  *  v2.28: 작업일보 출력(opsReport) — 감리단 보고 양식 PDF, 일일·기간·월간
+ *  v2.29: 확정 문서 「다시 작성(개정)」(reviseDoc) — 같은 번호로 작성중으로 되돌리고 이전 확정본·갑지·봉인·첨부는 _구버전 폴더와 개정 이력에 남긴다
  *
  * 화면(GitHub Pages)이 보낸 요청에 JSON으로 답한다. 데이터는 구글 시트(HN28_ERP_DB)에만 둔다.
  *  - 모든 요청은 POST(text/plain, JSON 본문). GET 은 ping 만 허용한다(주소창에 PIN 이 남지 않게).
@@ -126,6 +127,7 @@ function route_(req) {
       case 'deleteDocFile': out = deleteDocFile_(req); break;
       case 'getDocFile': out = getDocFile_(req); break;
       case 'verifyDoc': out = verifyDoc_(req); break;
+      case 'reviseDoc': out = reviseDoc_(req); break;
       case 'mailPreview': out = mailPreview_(req); break;
       case 'sendHqMail': out = sendHqMail_(req); break;
       case 'dashboard': out = dashboard_(req); break;
@@ -1767,7 +1769,7 @@ const DOC_FIELDS = [['id', 'ID'], ['docNo', '문서번호'], ['kind', '구분'],
   ['due', '회신기한'], ['replied', '회신여부'], ['link', '문서링크'], ['docId', '문서ID'], ['folderId', '폴더ID'], ['pdf', '확정PDF'], ['ref', '참조'],
   ['summary', '본문요지'], ['attach', '붙임'], ['note', '비고'], ['authorId', '작성자ID'], ['author', '작성자'], ['reviewer', '검토자'], ['reviewedAt', '검토일시'],
   ['approver', '승인자'], ['approvedAt', '승인일시'], ['reason', '반려사유'], ['hq', '본사상태'], ['hqBy', '본사처리자'], ['hqAt', '본사처리일시'],
-  ['hqSubmitAt', '본사제출일시'], ['hqNote', '본사메모'], ['created', '작성일시'], ['updated', '수정일시'], ['cat', '문서구분'], ['amount', '집행금액'], ['gapji', '갑지PDF'], ['files', '첨부파일'], ['seal', '문서해시'], ['mail', '본사메일']];
+  ['hqSubmitAt', '본사제출일시'], ['hqNote', '본사메모'], ['created', '작성일시'], ['updated', '수정일시'], ['cat', '문서구분'], ['amount', '집행금액'], ['gapji', '갑지PDF'], ['files', '첨부파일'], ['seal', '문서해시'], ['mail', '본사메일'], ['rev', '개정차수'], ['revs', '개정이력']];
 // 문서구분(갑지의 분류): 품의와 공문에만 있다. 이름만 저장한다.
 const DOC_CATS = { '품의': ['현장품의', '본사품의', '변경품의'], '공문': ['본사문서', '대관공문', '안전점검', '기타'] };
 const DOC_HEADERS = DOC_FIELDS.map(function (f) { return f[1]; });
@@ -1828,7 +1830,8 @@ function docPublic_(o) {
     link: o.link, folderUrl: folderUrl_(o.folderId), pdf: o.pdf, ref: o.ref, summary: o.summary, attach: o.attach, note: o.note,
     authorId: o.authorId, author: o.author, reviewer: o.reviewer, reviewedAt: o.reviewedAt, approver: o.approver, approvedAt: o.approvedAt, reason: o.reason,
     hq: { state: o.hq, by: o.hqBy, at: o.hqAt, submitAt: o.hqSubmitAt, note: o.hqNote }, created: o.created, updated: o.updated, cat: o.cat, amount: o.amount, gapji: o.gapji,
-    files: docFilesOf_(o).map(docFilePublic_), seal: o.seal || '', mail: docMailInfo_(o)
+    files: docFilesOf_(o).map(docFilePublic_), seal: o.seal || '', mail: docMailInfo_(o),
+    rev: docRevNo_(o), revs: docRevsOf_(o).map(function (r) { return { r: r.r, at: r.at, by: r.by, reason: r.reason, seal: r.seal, approvedAt: r.approvedAt, pdf: r.pdf, gapji: r.gapji, hq: r.hq, mail: r.mail, files: (r.files || []).map(function (f) { return { n: f.n, name: f.name, sha: f.sha }; }) }; })
   };
 }
 
@@ -1934,7 +1937,7 @@ function docMakePdf_(o) {
   if (!o.docId || !o.folderId) return '';
   try {
     const blob = DriveApp.getFileById(o.docId).getAs('application/pdf');
-    blob.setName(o.docNo + '_' + safeName_(o.title) + '_확정.pdf');
+    blob.setName(o.docNo + '_' + safeName_(o.title) + docRevTag_(o) + '_확정.pdf');
     const f = DriveApp.getFolderById(o.folderId).createFile(blob);
     return 'https://drive.google.com/file/d/' + f.getId() + '/view';
   } catch (e) { return ''; }
@@ -2067,7 +2070,7 @@ function gapjiHtml_(o) {
   h.push('<div style="text-align:center;font-size:23px;font-weight:bold;letter-spacing:4px;margin:0 0 18px 0;text-decoration:underline">' + gjEsc_(heading) + '</div>');
   h.push('<table style="width:100%;border-collapse:collapse;margin-bottom:14px"><tr><td style="vertical-align:top;width:34%;padding:0">');
   h.push('<table style="width:100%;border-collapse:collapse">');
-  h.push(row('문서번호', '', gjEsc_(o.docNo)) + row('발신일자', '', gjEsc_(ymdDots_(o.date))) + row('문서구분', '', o.cat ? gjEsc_('[' + o.cat + ']') : ph('-')));
+  h.push(row('문서번호', '', gjEsc_(o.docNo) + (docRevNo_(o) > 0 ? '<br><span style="font-size:10px;color:#b45309">(개정 ' + docRevNo_(o) + ')</span>' : '')) + row('발신일자', '', gjEsc_(ymdDots_(o.date))) + row('문서구분', '', o.cat ? gjEsc_('[' + o.cat + ']') : ph('-')));
   h.push('</table></td><td style="width:2%"></td><td style="vertical-align:top;padding:0">');
   h.push('<table style="width:100%;border-collapse:collapse"><tr>');
   h.push('<th rowspan="3" style="' + TH + ';width:20px">결<br>재</th>');
@@ -2108,7 +2111,7 @@ function docMakeGapji_(o) {
   if (!o.folderId || o.kind === '접수') return '';
   try {
     const blob = Utilities.newBlob(gapjiHtml_(o), 'text/html', 'gapji.html').getAs('application/pdf');
-    blob.setName(o.docNo + '_' + safeName_(o.title) + '_갑지.pdf');
+    blob.setName(o.docNo + '_' + safeName_(o.title) + docRevTag_(o) + '_갑지.pdf');
     const f = DriveApp.getFolderById(o.folderId).createFile(blob);
     const old = /\/file\/d\/([^\/]+)/.exec(String(o.gapji || ''));
     if (old && old[1] !== f.getId()) { try { DriveApp.getFileById(old[1]).setTrashed(true); } catch (e) { } }
@@ -2257,7 +2260,8 @@ function deleteDocFile_(req) {
     const k = files.map(function (f) { return Number(f.n); }).indexOf(Number(req.n));
     if (k < 0) return fail_('NOT_FOUND', '없는 첨부파일입니다.');
     const f = files[k];
-    try { DriveApp.getFileById(f.fid).setTrashed(true); } catch (e) { /* 이미 없으면 목록에서만 뺀다 */ }
+    if (docFileArchived_(o, f.fid)) docMoveToOld_(o, f.fid, ''); // 이전 확정본에 들어 있던 파일은 지우지 않고 _구버전으로 옮긴다
+    else { try { DriveApp.getFileById(f.fid).setTrashed(true); } catch (e) { /* 이미 없으면 목록에서만 뺀다 */ } }
     files.splice(k, 1);
     o.files = JSON.stringify(files);
     docWrite_(sh, o, o._row);
@@ -2282,7 +2286,9 @@ function getDocFile_(req) {
 /** 확정 때 찍는 문서 해시(봉인): 문서 내용 + 첨부파일 이름·SHA-256 */
 function docSeal_(o) {
   const files = docFilesOf_(o).map(function (f) { return f.n + ':' + f.name + ':' + f.sha; }).join('|');
-  return sha256Hex_(['HN28v1', o.docNo, o.kind, o.cat, o.date, o.party, o.title, o.amount, o.summary, o.attach, o.ref, files].join('\n'));
+  const parts = ['HN28v1', o.docNo, o.kind, o.cat, o.date, o.party, o.title, o.amount, o.summary, o.attach, o.ref, files];
+  if (docRevNo_(o) > 0) parts.push('rev' + docRevNo_(o)); // 개정 전 문서의 봉인 값은 그대로 유지된다
+  return sha256Hex_(parts.join('\n'));
 }
 /** 봉인이 지금 내용과 같은지, 첨부파일이 그대로인지 다시 계산해 본다. */
 function verifyDoc_(req) {
@@ -2297,6 +2303,78 @@ function verifyDoc_(req) {
     return { n: f.n, name: f.name, ok: ok, missing: missing };
   });
   return { ok: true, sealOk: docSeal_(o) === o.seal, seal: o.seal, files: files };
+}
+
+// ── 다시 작성(개정) v2.29 ──
+function docRevNo_(o) { return Number(o.rev) || 0; }
+function docRevTag_(o) { return docRevNo_(o) > 0 ? '_개정' + docRevNo_(o) : ''; }
+function docRevsOf_(o) { try { const a = JSON.parse(o.revs || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+function docFileArchived_(o, fid) {
+  return docRevsOf_(o).some(function (r) { return (r.files || []).some(function (f) { return f.fid === fid; }); });
+}
+function driveIdOf_(u) { const m = /\/file\/d\/([^\/?#]+)/.exec(String(u || '')) || /[?&]id=([^&#]+)/.exec(String(u || '')); return m ? m[1] : ''; }
+/** 문서 폴더 아래 _구버전 폴더(없으면 만든다). 실패하면 null. */
+function docOldFolder_(o) {
+  if (!o.folderId) return null;
+  try {
+    const f = DriveApp.getFolderById(o.folderId);
+    const it = f.getFoldersByName('_구버전');
+    return it.hasNext() ? it.next() : f.createFolder('_구버전');
+  } catch (e) { return null; }
+}
+/** 파일을 지우지 않고 _구버전 폴더로 옮긴다. suffix 가 있으면 이름 끝(확장자 앞)에 붙인다. 성공하면 true. */
+function docMoveToOld_(o, fid, suffix) {
+  if (!fid) return false;
+  const old = docOldFolder_(o); if (!old) return false;
+  try {
+    const f = DriveApp.getFileById(fid);
+    if (suffix) { const n = f.getName(); const dot = n.lastIndexOf('.'); f.setName(dot > 0 ? n.slice(0, dot) + suffix + n.slice(dot) : n + suffix); }
+    f.moveTo(old);
+    return true;
+  } catch (e) { return false; }
+}
+/**
+ * 확정된 품의·공문을 같은 번호로 다시 작성(개정)한다. 현장소장만, 사유 필수.
+ * 이전 확정본 PDF·갑지 PDF 는 _구버전 폴더로 옮기고(지우지 않음), 봉인·결재·본사 표시·메일 기록은 개정 이력에 남긴 뒤 비운다.
+ * 첨부파일은 그대로 두며, 작성중 상태에서 바꿀 때 이전 확정본에 들었던 파일은 지우지 않고 _구버전으로 옮긴다.
+ */
+function reviseDoc_(req) {
+  const g = expAuth_(req); if (g.err) return g.err;
+  const me = g.s;
+  if (me.role !== MANAGER_ROLE) return fail_('FORBIDDEN', '확정된 문서를 다시 작성(개정)하는 것은 현장소장만 할 수 있습니다.');
+  const reason = cleanText_(req.reason, 200);
+  if (reason.length < 2) return fail_('PARAM', '다시 작성하는 사유를 적어 주세요.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = ensureDocSheet_(getDb_());
+    const o = docFind_(sh, String(req.id || ''));
+    if (!o) return fail_('NOT_FOUND', '없는 문서입니다.');
+    if (o.kind === '접수') return fail_('STATE', '받은 문서는 「수정」으로 고칩니다.');
+    if (o.status !== DST.DONE) return fail_('STATE', '확정된 문서만 다시 작성할 수 있습니다. 작성중·반려 문서는 「수정」을 쓰세요.');
+    const r0 = docRevNo_(o);
+    if (!o.seal) o.seal = docSeal_(o); // 봉인이 없던 확정 문서도 개정 전 상태를 남긴다
+    const tag = '_개정전' + (r0 ? '(개정' + r0 + ')' : '');
+    const warn = [];
+    const pdfId = driveIdOf_(o.pdf), gjId = driveIdOf_(o.gapji);
+    if (pdfId && !docMoveToOld_(o, pdfId, tag)) warn.push('이전 확정 PDF를 _구버전 폴더로 옮기지 못했습니다(파일은 그대로 있습니다).');
+    if (gjId && !docMoveToOld_(o, gjId, tag)) warn.push('이전 갑지 PDF를 _구버전 폴더로 옮기지 못했습니다(파일은 그대로 있습니다).');
+    const revs = docRevsOf_(o);
+    revs.push({ r: r0, at: nowStr_(), by: me.name, reason: reason, seal: o.seal, approver: o.approver, approvedAt: o.approvedAt, reviewer: o.reviewer, reviewedAt: o.reviewedAt,
+      pdf: o.pdf, gapji: o.gapji, hq: o.hq ? { state: o.hq, by: o.hqBy, at: o.hqAt, submitAt: o.hqSubmitAt, note: o.hqNote } : null, mail: o.mail || '',
+      files: docFilesOf_(o).map(function (f) { return { n: f.n, fid: f.fid, name: f.name, size: f.size, sha: f.sha }; }) });
+    o.revs = JSON.stringify(revs);
+    o.rev = String(r0 + 1);
+    o.status = DST.DRAFT;
+    o.seal = ''; o.pdf = ''; o.gapji = ''; o.approver = ''; o.approvedAt = ''; o.reviewer = ''; o.reviewedAt = ''; o.reason = '';
+    o.hq = ''; o.hqBy = ''; o.hqAt = ''; o.hqSubmitAt = ''; o.hqNote = ''; o.mail = '';
+    docWrite_(sh, o, o._row);
+    audit_(me.id, '문서개정', o.docNo + ' 개정' + o.rev + ' / ' + reason);
+    if (o.authorId !== me.id) warn.push('작성자(' + o.author + ')가 고친 뒤 다시 제출해야 합니다.');
+    return { ok: true, item: docPublic_(o), warn: warn };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function docValidate_(req, kind) {
@@ -2748,12 +2826,12 @@ function mailSizeText_(n) { return n >= 1048576 ? (n / 1048576).toFixed(1) + 'MB
 /** 제목·본문(메모 제외)을 만든다. 미리보기와 실제 발송이 같은 글이 되도록 한곳에서 만든다. */
 function docMailText_(o) {
   const files = docFilesOf_(o);
-  const subject = '[호남고속선 재해예방공사] ' + o.kind + ' ' + o.docNo + ' ' + o.title;
+  const subject = '[호남고속선 재해예방공사] ' + o.kind + ' ' + o.docNo + (docRevNo_(o) > 0 ? '(개정 ' + docRevNo_(o) + ')' : '') + ' ' + o.title;
   const L = [];
   L.push('안녕하세요. 호남고속선 정읍~광주송정 등 28개소 재해예방공사 현장입니다.');
   L.push('아래 ' + o.kind + '를 송부하오니 검토 후 회신하여 주시기 바랍니다.');
   L.push('');
-  L.push('■ 문서번호: ' + o.docNo);
+  L.push('■ 문서번호: ' + o.docNo + (docRevNo_(o) > 0 ? ' (개정 ' + docRevNo_(o) + ')' : ''));
   L.push('■ 구분: ' + o.kind + (o.cat ? ' [' + o.cat + ']' : ''));
   L.push('■ 제목: ' + o.title);
   if (o.kind === '품의' && o.amount) L.push('■ 집행금액: ' + o.amount);

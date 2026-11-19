@@ -69,7 +69,7 @@
 
   /** 저장된 문서 → 갑지에 들어갈 값 */
   function sheetOfItem(i) {
-    return { kind: i.kind, docNo: i.docNo, date: i.date, cat: i.cat, party: i.party, title: i.title, amount: i.amount, summary: i.summary, attach: i.attach, author: i.author, status: i.status,
+    return { kind: i.kind, docNo: i.docNo + (i.rev ? ' (개정 ' + i.rev + ')' : ''), date: i.date, cat: i.cat, party: i.party, title: i.title, amount: i.amount, summary: i.summary, attach: i.attach, author: i.author, status: i.status,
       drafted: i.status === '검토대기' || i.status === '승인대기' || i.status === '확정', approver: i.status === '확정' ? i.approver : '', approvedAt: i.approvedAt,
       hq: i.hq || {}, mgr: (i.status === '확정' && i.approver) || MGR_NAME, files: i.files || [], seal: i.seal || '' };
   }
@@ -281,6 +281,7 @@
       var r1 = el('div', 'r1'); r1.appendChild(el('span', '', i.title)); r1.appendChild(el('span', '', i.kind));
       var r2 = el('div', 'r2');
       r2.appendChild(chipFor(i));
+      if (i.rev) r2.appendChild(el('span', 'st st-검토대기', '개정 ' + i.rev));
       r2.appendChild(document.createTextNode(' ' + i.docNo + ' · ' + i.date + (i.party ? ' · ' + i.party : '') + ' · ' + i.author));
       var r3 = el('div', 'r2');
       var ri = replyInfo(i);
@@ -483,7 +484,8 @@
     var box = $('dDetail'); box.textContent = ''; pane('detail');
     var p = el('div', 'panel'); box.appendChild(p);
     var h = el('h3', '', i.kind + ' 상세 '); var b = el('button', 'sm', '목록으로'); b.type = 'button'; b.style.float = 'right'; b.onclick = function () { pane('list'); load(); }; h.appendChild(b); p.appendChild(h);
-    var st = el('div'); st.appendChild(chipFor(i)); st.appendChild(document.createTextNode('  ' + i.docNo)); p.appendChild(st);
+    var st = el('div'); st.appendChild(chipFor(i)); st.appendChild(document.createTextNode('  ' + i.docNo + (i.rev ? '  (개정 ' + i.rev + ')' : ''))); p.appendChild(st);
+    if (i.rev && i.status === '작성중' && i.revs && i.revs.length) { var lr = i.revs[i.revs.length - 1]; p.appendChild(el('div', 'rej', '다시 작성 중: ' + lr.reason + '  (' + lr.by + ' · ' + String(lr.at).slice(0, 16) + ') — 고친 뒤 「제출」하면 새로 확정·봉인됩니다.')); }
     if (i.status === '반려' && i.reason) p.appendChild(el('div', 'rej', '반려 사유: ' + i.reason + (i.approver ? '  (' + i.approver + ')' : i.reviewer ? '  (' + i.reviewer + ')' : '')));
     if (i.status === '결번' && i.reason) p.appendChild(el('div', 'rej', '결번 사유: ' + i.reason));
     kv(p, '제목', i.title); kv(p, '일자', i.date);
@@ -502,6 +504,17 @@
     if (i.hq && i.hq.state) kv(p, '본사', '본사 ' + i.hq.state + ' · ' + i.hq.by + ' · ' + String(i.hq.at).slice(0, 16) + (i.hq.state === '확인' && i.hq.submitAt ? ' (제출 ' + String(i.hq.submitAt).slice(0, 16) + ')' : '') + (i.hq.note ? ' · ' + i.hq.note : ''));
     if (i.mail) kv(p, '본사 메일', String(i.mail.at).slice(0, 16) + ' · ' + i.mail.by + ' → ' + String(i.mail.to).replace(/,/g, ', ') + ' (첨부 ' + i.mail.n + '건)');
     if (i.note) kv(p, '비고', i.note);
+    if (i.revs && i.revs.length) {
+      var rv = el('div', 'desc', '개정 이력 ' + i.revs.length + '건 (이전 확정본은 폴더의 _구버전에 있습니다)'); rv.style.marginTop = '10px'; p.appendChild(rv);
+      var rl = el('div', 'fl'); p.appendChild(rl);
+      i.revs.slice().reverse().forEach(function (r) {
+        var row = el('div', 'fr'); var nm = el('span', 'nm', (r.r ? '개정 ' + r.r : '최초') + ' 확정본 · 확정 ' + String(r.approvedAt || '').slice(0, 16));
+        nm.appendChild(el('span', 'sub', '다시 작성 ' + String(r.at).slice(0, 16) + ' · ' + r.by + ' · 사유: ' + r.reason + (r.hq && r.hq.state ? ' · 당시 본사 ' + r.hq.state : '') + (r.mail ? ' · 메일 보낸 적 있음' : '') + ' · 봉인 ' + String(r.seal || '').slice(0, 12) + '… · 첨부 ' + (r.files || []).length + '건'));
+        row.appendChild(nm);
+        [['갑지', r.gapji], ['확정 PDF', r.pdf]].forEach(function (x) { var u = safeUrl(x[1]); if (!u) return; var a = el('a', 'btnlink', x[0]); a.href = u; a.target = '_blank'; a.rel = 'noopener'; row.appendChild(a); });
+        rl.appendChild(row);
+      });
+    }
     var fbox = null;
     if (i.files && i.files.length) { p.appendChild(el('div', 'desc', '첨부파일 ' + i.files.length + '개 (파일마다 SHA-256 기록)')).style.marginTop = '10px'; fbox = el('div', 'fl'); p.appendChild(fbox); }
 
@@ -618,6 +631,17 @@
     if (i.kind !== '접수' && i.status === '확정' && isGm()) btn(i.mail ? '본사로 메일 다시 보내기' : '본사로 메일 보내기', i.mail ? '' : 'pri', mailBox).style.marginTop = '0';
     if (i.kind !== '접수' && i.status === '확정' && (mine || isGm())) btn(i.gapji ? '갑지 PDF 다시 만들기' : '갑지 PDF 만들기', '', function () { act('gapjiDoc', { id: i.id }, '갑지 PDF를 만들었습니다.'); });
     if (i.kind !== '접수' && i.status === '확정' && i.seal) btn('무결성 확인', '', function () { verify(i); });
+    if (i.kind !== '접수' && i.status === '확정' && isMgr()) btn('다시 작성(개정)', 'warn', function () {
+      noteBox('다시 작성 확정', '다시 작성하는 사유 (예: 붙임 보고서 수정본으로 교체) — 같은 번호로 「작성중」이 되고, 지금 확정본·갑지·봉인은 _구버전 폴더와 개정 이력에 남습니다. 본사 제출·메일 표시는 비워지니 다시 확정한 뒤 다시 보내 주세요.', true, 'warn', function (v) {
+        if (busy) return; busy = true; setMsg('dDMsg', '처리 중…', true);
+        E.api('reviseDoc', { id: i.id, reason: v }, 60000).then(function (r) {
+          busy = false;
+          if (E.authLost(r)) return;
+          if (!r || !r.ok) { setMsg('dDMsg', (r && r.error === 'UNKNOWN_ACTION') ? '서버를 v2.29로 새로 배포하면 다시 작성할 수 있습니다.' : ((r && r.message) || '처리하지 못했습니다.')); return; }
+          showDetail(r.item, '다시 작성(개정 ' + r.item.rev + ')으로 바꿨습니다. 수정·첨부 교체 후 「제출」하면 새로 확정됩니다.' + ((r.warn && r.warn.length) ? '\n※ ' + r.warn.join(' ') : ''));
+        });
+      });
+    });
     if (i.status !== '결번' && (mine || isGm())) btn('링크 바꾸기', '', linkBox);
     if ((i.status === '작성중' || i.status === '반려' || i.status === '접수') && (mine || isMgr())) {
       btn('결번 처리', 'warn', function () { noteBox('결번 확정', '결번 사유 (번호는 지우지 않고 기록으로 남깁니다)', true, 'warn', function (v) { act('voidDoc', { id: i.id, reason: v }, '결번으로 처리했습니다.'); }); });
