@@ -146,6 +146,17 @@
   .xsum { font-size: 13px; color: #334155; background: #f8fafc; border-radius: 8px; padding: 8px 10px; margin: 6px 0; line-height: 1.6; }
   .xi { border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; margin: 8px 0; cursor: pointer; background: #fff; }
   .xi:hover { border-color: #93c5fd; }
+  /* v2.32 경비 빠른 입력: 거래처 자동완성 · 내 초안 고르기 · 뒤에서 올리기 표시 */
+  .sug { border: 1px solid #cbd5e1; border-radius: 10px; margin-top: 4px; overflow: hidden; background: #fff; }
+  .sug button { display: block; width: 100%; text-align: left; border: 0; border-bottom: 1px solid #eef2f7; border-radius: 0; background: #fff; padding: 9px 12px; font-size: 13.5px; font-weight: 700; }
+  .sug button:last-child { border-bottom: 0; }
+  .sug button small { display: block; color: #64748b; font-size: 11.5px; font-weight: 500; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .xi.pick { display: flex; gap: 10px; align-items: flex-start; }
+  .xi.pick > input { width: 20px; height: 20px; margin: 2px 0 0; flex: none; }
+  .xi.pick > div { flex: 1; min-width: 0; }
+  .st-auto { background: #e0f2fe; color: #075985; } .st-chk { background: #ffedd5; color: #9a3412; }
+  .upchip { position: fixed; left: 50%; transform: translateX(-50%); bottom: 76px; z-index: 60; background: #0f172a; color: #fff; font-size: 13px; line-height: 1.5; padding: 8px 14px; border-radius: 16px; box-shadow: 0 4px 14px rgba(15,23,42,.25); width: max-content; max-width: 92vw; }
+  .upchip button { margin-left: 8px; font-size: 12px; padding: 3px 9px; border-radius: 10px; }
   .xi .r1 { display: flex; justify-content: space-between; gap: 8px; font-weight: 800; font-size: 14.5px; }
   .xi .r2 { font-size: 12px; color: #64748b; margin-top: 3px; line-height: 1.5; }
   .st { display: inline-block; font-size: 11px; font-weight: 800; padding: 2px 8px; border-radius: 9px; white-space: nowrap; }
@@ -481,13 +492,18 @@
           <div class="xsum" id="xSum"></div>
           <div id="xItems"></div>
           <div class="msg" id="xMsg"></div>
+          <div class="row-btns hide" id="xBulk"><button type="button" id="xBulkAll">모두 고르기</button><button type="button" class="pri" id="xBulkGo" style="margin-top:0">고른 초안 제출</button></div>
           <button class="pri" id="xNew">+ 경비 등록</button>
+          <button type="button" id="xQuick" class="hide" style="width:100%;margin-top:8px">영수증만 올리기 (내용은 자동 입력)</button>
+          <input type="file" id="xQuickFiles" accept="image/*" multiple class="hide">
+          <p class="desc hide" id="xQuickHelp" style="margin:8px 0 0">사진 한 장이 경비 한 건이 됩니다. 올리는 동안 기다릴 필요가 없고, 내용이 채워지면 「내 초안」에서 확인하고 제출합니다.</p>
         </div>
       </div>
       <div id="xDetail" class="hide"></div>
       <div id="xForm" class="hide">
         <div class="panel">
           <h3 id="fTitle">경비 등록</h3>
+          <p class="desc hide" id="fAuto"></p>
           <div class="grid2">
             <div><label for="fDate">사용일</label><input type="date" id="fDate"></div>
             <div><label for="fSite">개소</label><select id="fSite"></select></div>
@@ -497,8 +513,8 @@
             <div><label for="fPay">결제수단</label><select id="fPay"></select></div>
           </div>
           <label for="fBudget">예산 항목 <small style="font-weight:500;color:#64748b">(비목에 맞춰 자동 선택, 바꿀 수 있음)</small></label><select id="fBudget"></select>
-          <label for="fVendor">사용처(거래처)</label><input type="text" id="fVendor" maxlength="60" autocomplete="off" placeholder="예: 정읍한백식당, 호남주유소">
-          <label for="fMemo">적요 (지출 내용·목적)</label><input type="text" id="fMemo" maxlength="200" autocomplete="off" placeholder="예: 정읍 3개소 배수로 작업반 중식 (8명)">
+          <label for="fVendor">사용처(거래처)</label><input type="text" id="fVendor" maxlength="60" autocomplete="off" placeholder="예: 정읍한백식당, 호남주유소 (한 글자나 초성만 쳐도 찾습니다)"><div id="fSug" class="sug hide"></div>
+          <label for="fMemo">적요 (지출 내용·목적)</label><datalist id="fMemoList"></datalist><input type="text" id="fMemo" list="fMemoList" maxlength="200" autocomplete="off" placeholder="예: 정읍 3개소 배수로 작업반 중식 (8명)">
           <label for="fTotal">합계 금액 (원, 영수증 총액)</label><input type="text" id="fTotal" inputmode="numeric" autocomplete="off" placeholder="예: 88000" style="font-weight:800;color:#1d4ed8">
           <div class="grid2">
             <div><label for="fVatMode">부가세</label><select id="fVatMode"><option value="auto">포함 (자동 계산)</option><option value="none">면세 (부가세 없음)</option><option value="manual">직접 입력</option></select></div>

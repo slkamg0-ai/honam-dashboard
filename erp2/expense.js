@@ -12,12 +12,106 @@
   var closedList = [];     // 서버가 알려 주는 마감된 달
   var F = null;            // 작성 중인 양식 상태
   var busy = false;
+  var hints = null;        // 거래처별 지난 입력(서버 v2.32) — 자동완성용
+  var sel = {};            // 「내 초안」에서 제출하려고 고른 건
+  var Q = { jobs: [], run: false, done: 0, total: 0, sub: 0, subFail: 0, fail: [], bad: {}, note: '' }; // 뒤에서 올리는 사진·제출
+  var chip = null;
 
   var won = function (n) { return Number(n || 0).toLocaleString('ko-KR') + '원'; };
   function setMsg(id, text, info) { var m = $(id); m.className = 'msg' + (info ? ' info' : ''); m.textContent = text || ''; }
   function show(id, on) { $(id).classList.toggle('hide', !on); }
   function pane(name) { show('xList', name === 'list'); show('xDetail', name === 'detail'); show('xForm', name === 'form'); window.scrollTo(0, 0); }
   function fail(msgId, r) { if (E.authLost(r)) return true; if (r && r.ok) return false; setMsg(msgId, (r && r.message) || '처리하지 못했습니다.'); return false; }
+
+  // ── 뒤에서 올리기(v2.32): 사진 전송과 그 뒤의 제출을 화면을 붙잡지 않고 차례로 처리한다 ──
+  function qBusy() { return Q.run || Q.jobs.length > 0; }
+  function qReset() { Q.done = 0; Q.total = 0; Q.sub = 0; Q.subFail = 0; Q.fail = []; Q.bad = {}; Q.note = ''; }
+  function chipDraw(final) {
+    if (!chip) { chip = el('div', 'upchip hide'); chip.setAttribute('role', 'status'); document.body.appendChild(chip); }
+    chip.textContent = ''; chip.classList.remove('hide');
+    if (!final) { chip.appendChild(document.createTextNode(Q.total ? '영수증 ' + Q.total + '장 중 ' + Math.min(Q.total, Q.done + Q.fail.length + 1) + '번째 올리는 중…' : '제출하는 중…')); return; }
+    var t = [];
+    if (Q.done) t.push('영수증 ' + Q.done + '장을 올렸습니다.');
+    if (Q.sub) t.push(Q.sub + '건을 제출했습니다.');
+    if (Q.fail.length) t.push(Q.fail.length + '장은 올리지 못했습니다.');
+    if (Q.subFail) t.push(Q.subFail + '건은 제출하지 못했습니다. 「내 초안」에서 확인해 주세요.');
+    if ((Q.fail.length || Q.subFail) && Q.note) t.push('(' + Q.note + ')');
+    chip.appendChild(document.createTextNode(t.join(' ') || '처리했습니다.'));
+    if (Q.fail.length) { var rb = el('button', '', '다시 올리기'); rb.type = 'button'; rb.onclick = function () { var again = Q.fail.slice(); qReset(); qPush(again); }; chip.appendChild(rb); }
+    var cb = el('button', '', '닫기'); cb.type = 'button'; cb.onclick = function () { chip.classList.add('hide'); if (!qBusy()) qReset(); }; chip.appendChild(cb);
+  }
+  function qPush(jobs) {
+    if (!qBusy() && !Q.fail.length) qReset();
+    jobs.forEach(function (j) { Q.jobs.push(j); if (j.kind !== 'submit') Q.total += 1; });
+    qRun();
+  }
+  function qRun() {
+    if (Q.run) return;
+    var j = Q.jobs.shift();
+    if (!j) { chipDraw(true); if (!$('vExp').classList.contains('hide') && !$('xList').classList.contains('hide') && M) load(); refreshBadge(); return; }
+    Q.run = true; chipDraw(false);
+    var p;
+    if (j.id && Q.bad[j.id]) p = Promise.resolve({ ok: false, skipped: true });
+    else if (j.kind === 'quick') p = E.api('quickReceipt', { photo: j.photo }, 70000);
+    else if (j.kind === 'add') p = E.api('addReceipt', { id: j.id, photo: j.photo }, 70000);
+    else p = submitAsk(j.id);
+    p.then(function (r) {
+      Q.run = false;
+      if (r && r.ok) { if (j.kind === 'submit') Q.sub += 1; else Q.done += 1; }
+      else {
+        if (j.kind === 'submit') Q.subFail += 1; else { Q.fail.push(j); if (j.id) Q.bad[j.id] = true; }
+        if (r && !r.skipped && r.message) Q.note = r.message;
+        if (r && (r.error === 'AUTH' || r.error === 'MUST_CHANGE_PIN')) { // 로그인이 끊기면 남은 것을 모두 못 올린 것으로 돌린다
+          Q.jobs.forEach(function (x) { if (x.kind === 'submit') Q.subFail += 1; else Q.fail.push(x); }); Q.jobs = [];
+          chipDraw(true); E.authLost(r); return;
+        }
+      }
+      qRun();
+    });
+  }
+  window.addEventListener('beforeunload', function (ev) { if (qBusy()) { ev.preventDefault(); ev.returnValue = ''; } });
+
+  // ── 거래처 자동완성(v2.32): 한 글자나 초성만 쳐도 자주 쓴 순으로 보여 준다 ──
+  var CHO = 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ';
+  function cho(t) { var o = ''; for (var k = 0; k < t.length; k++) { var c = t.charCodeAt(k) - 0xAC00; o += (c >= 0 && c < 11172) ? CHO.charAt(Math.floor(c / 588)) : t.charAt(k); } return o; }
+  function loadHints() {
+    if (hints || !M || !M.quick) return;
+    E.api('expHints', {}, 20000).then(function (r) { if (r && r.ok && Array.isArray(r.vendors)) { hints = r.vendors; if (document.activeElement === $('fVendor')) drawSug(); } });
+  }
+  function hintMatch(q) {
+    if (!hints) return [];
+    var t = q.replace(/\s+/g, '').toLowerCase(); if (!t) return hints.slice(0, 6);
+    var jamo = /^[ㄱ-ㅎ]+$/.test(t);
+    return hints.filter(function (h) { var n = h.vendor.replace(/\s+/g, '').toLowerCase(); return n.indexOf(t) >= 0 || (jamo && cho(n).indexOf(t) >= 0); }).slice(0, 6);
+  }
+  function hasOpt(sel0, v) { return Array.prototype.some.call(sel0.options, function (o) { return o.value === String(v); }); }
+  function pickHint(h) {
+    $('fVendor').value = h.vendor;
+    if (hasOpt($('fCat'), h.category)) $('fCat').value = h.category;
+    if (hasOpt($('fPay'), h.pay)) $('fPay').value = h.pay;
+    if (hasOpt($('fSite'), h.site)) $('fSite').value = String(h.site);
+    if (hasOpt($('fBudget'), h.budget)) { $('fBudget').value = h.budget; $('fBudget').dataset.manual = '1'; }
+    if (!$('fMemo').value.trim() && h.memo) $('fMemo').value = h.memo;
+    var dl = $('fMemoList'); dl.textContent = ''; (h.memos || []).forEach(function (m) { var o = document.createElement('option'); o.value = m; dl.appendChild(o); });
+    if (!$('fTotal').value) $('fVatMode').value = (h.total > 0 && h.vat === 0) ? 'none' : 'auto';
+    calcVat(); show('fSug', false); $('fTotal').focus();
+  }
+  function drawSug() {
+    var box = $('fSug'); box.textContent = '';
+    var list = hintMatch($('fVendor').value);
+    if (!list.length || (list.length === 1 && list[0].vendor === $('fVendor').value.trim())) { show('fSug', false); return; }
+    list.forEach(function (h) {
+      var b = el('button', '', h.vendor); b.type = 'button';
+      b.appendChild(el('small', '', String(h.category || '').split('(')[0] + (h.memo ? ' · ' + h.memo : '') + ' · 최근 ' + won(h.total) + ' · ' + h.n + '회'));
+      b.onmousedown = function (ev) { ev.preventDefault(); }; // 입력칸의 포커스를 잃지 않게
+      b.onclick = function () { pickHint(h); };
+      box.appendChild(b);
+    });
+    show('fSug', true);
+  }
+  $('fVendor').addEventListener('input', drawSug);
+  $('fVendor').addEventListener('focus', drawSug);
+  $('fVendor').addEventListener('blur', function () { setTimeout(function () { show('fSug', false); }, 150); });
 
   // ── 마스터 ──
   function withMaster(cb, msgId) {
@@ -57,7 +151,7 @@
     });
   }
   E.onEnter.push(refreshBadge);
-  E.onLeave.push(function () { items = []; F = null; month = ''; filter = 'all'; $('xItems').textContent = ''; $('xDetail').textContent = ''; $('xSum').textContent = ''; });
+  E.onLeave.push(function () { items = []; F = null; month = ''; filter = 'all'; hints = null; sel = {}; Q.jobs = []; if (chip) chip.classList.add('hide'); $('xItems').textContent = ''; $('xDetail').textContent = ''; $('xSum').textContent = ''; });
 
   // ── 목록 ──
   function openList() {
@@ -71,12 +165,15 @@
 
   function buildFilters() {
     var box = $('xFilters'); box.textContent = '';
-    [['all', '이번 달 전체'], ['mine', '내가 쓴 것'], ['queue', '결재 대기함']].forEach(function (f) {
+    var tabs = [['all', '이번 달 전체'], ['mine', '내가 쓴 것'], ['queue', '결재 대기함']];
+    if (M && M.quick) tabs.push(['drafts', '내 초안']);
+    show('xQuick', !!(M && M.quick)); show('xQuickHelp', !!(M && M.quick));
+    tabs.forEach(function (f) {
       var b = el('button', filter === f[0] ? 'sel' : '', f[1]); b.type = 'button';
-      b.onclick = function () { filter = f[0]; buildFilters(); load(); };
+      b.onclick = function () { filter = f[0]; sel = {}; buildFilters(); load(); };
       box.appendChild(b);
     });
-    var q = filter === 'queue'; $('xMonth').disabled = q; $('xPrev').disabled = q; $('xNext').disabled = q; $('xThis').disabled = q;
+    var q = filter === 'queue' || filter === 'drafts'; $('xMonth').disabled = q; $('xPrev').disabled = q; $('xNext').disabled = q; $('xThis').disabled = q;
   }
   function shiftMonth(d) { if (!month) return; var y = +month.slice(0, 4), m = +month.slice(5, 7) + d; if (m < 1) { m = 12; y--; } if (m > 12) { m = 1; y++; } month = y + '-' + (m < 10 ? '0' : '') + m; $('xMonth').value = month; load(); }
   $('xPrev').onclick = function () { shiftMonth(-1); };
@@ -86,11 +183,11 @@
 
   function load() {
     setMsg('xMsg', '불러오는 중…', true);
-    var req = filter === 'queue' ? { queue: true } : { month: month };
+    var req = filter === 'queue' ? { queue: true } : filter === 'drafts' ? { drafts: true } : { month: month };
     E.api('listExpenses', req, 25000).then(function (r) {
       if (E.authLost(r)) return;
       if (!r.ok) { items = []; render(); setMsg('xMsg', r.message || '목록을 불러오지 못했습니다.'); return; }
-      items = r.items; closedList = r.closed || []; setMsg('xMsg', ''); render();
+      items = r.items; closedList = r.closed || []; setMsg('xMsg', pendingNote, pendingNoteOk); pendingNote = ''; render();
       if (pendingId) { var hit = items.filter(function (x) { return x.id === pendingId; })[0]; pendingId = ''; if (hit) showDetail(hit); }
     });
   }
@@ -101,24 +198,78 @@
     var sum = $('xSum'); sum.textContent = '';
     var all = 0, done = 0, cnt = {};
     list.forEach(function (i) { cnt[i.status] = (cnt[i.status] || 0) + 1; if (i.status !== '반려') all += i.total; if (i.status === '승인') done += i.total; });
-    var head = filter === 'queue' ? '결재 대기 ' + list.length + '건' : (month.replace('-', '년 ') + '월 · ' + list.length + '건');
+    var head = filter === 'queue' ? '결재 대기 ' + list.length + '건' : filter === 'drafts' ? '내 초안 ' + list.length + '건' : (month.replace('-', '년 ') + '월 · ' + list.length + '건');
     sum.appendChild(document.createTextNode(head + ' · 합계 ' + won(all) + ' (반려 제외)'));
-    if (filter !== 'queue') { sum.appendChild(document.createElement('br')); sum.appendChild(document.createTextNode('승인 완료 ' + won(done) + (cnt['반려'] ? ' · 반려 ' + cnt['반려'] + '건' : ''))); }
-    var cl = filter !== 'queue' ? closedList.filter(function (c) { return c.ym === month; })[0] : null;
+    if (filter !== 'queue' && filter !== 'drafts') { sum.appendChild(document.createElement('br')); sum.appendChild(document.createTextNode('승인 완료 ' + won(done) + (cnt['반려'] ? ' · 반려 ' + cnt['반려'] + '건' : ''))); }
+    var cl = (filter !== 'queue' && filter !== 'drafts') ? closedList.filter(function (c) { return c.ym === month; })[0] : null;
     if (cl) { sum.appendChild(document.createElement('br')); sum.appendChild(document.createTextNode('이 달은 마감되었습니다 (' + cl.by + ', ' + cl.at.slice(0, 16) + '). 늦게 나온 영수증은 누락분으로 다음 달에 청구합니다.')); }
     var box = $('xItems'); box.textContent = '';
-    if (!list.length) { box.appendChild(el('div', 'desc', filter === 'queue' ? '결재를 기다리는 경비가 없습니다.' : '이 달에 등록된 경비가 없습니다.')); return; }
+    drawBulk(list);
+    if (!list.length) { box.appendChild(el('div', 'desc', filter === 'queue' ? '결재를 기다리는 경비가 없습니다.' : filter === 'drafts' ? '제출하지 않은 초안이 없습니다.' : '이 달에 등록된 경비가 없습니다.')); return; }
     list.forEach(function (i) {
       var c = el('div', 'xi'); c.tabIndex = 0; c.setAttribute('role', 'button');
-      var r1 = el('div', 'r1'); r1.appendChild(el('span', '', i.vendor)); r1.appendChild(el('span', '', won(i.total)));
+      var r1 = el('div', 'r1'); r1.appendChild(el('span', '', i.vendor || (i.auto === '판독대기' ? '(영수증 읽는 중)' : '(사용처 없음)'))); r1.appendChild(el('span', '', i.total ? won(i.total) : '—'));
       var r2 = el('div', 'r2');
-      r2.appendChild(el('span', 'st st-' + i.status, i.status)); if (i.late) r2.appendChild(el('span', 'st st-late', '누락분')); r2.appendChild(document.createTextNode(' ' + i.date.slice(5) + ' · ' + i.category.split('(')[0] + ' · ' + siteLabel(i.site) + ' · ' + i.author + (i.docNo ? ' · ' + i.docNo : '')));
-      c.appendChild(r1); c.appendChild(r2);
+      r2.appendChild(el('span', 'st st-' + i.status, i.status)); if (i.late) r2.appendChild(el('span', 'st st-late', '누락분'));
+      if (i.auto) r2.appendChild(el('span', 'st ' + (i.auto === '판독완료' ? 'st-auto' : 'st-chk'), autoLabel(i.auto)));
+      r2.appendChild(document.createTextNode(' ' + i.date.slice(5) + ' · ' + (String(i.category || '').split('(')[0] || '비목 없음') + ' · ' + siteLabel(i.site) + ' · ' + i.author + (i.docNo ? ' · ' + i.docNo : '')));
+      var body = c;
+      if (filter === 'drafts') {
+        c.className = 'xi pick';
+        var cb = document.createElement('input'); cb.type = 'checkbox'; cb.disabled = !canBulk(i); cb.checked = !!sel[i.id] && !cb.disabled; cb.title = cb.disabled ? '내용을 확인한 뒤 제출할 수 있습니다' : '제출할 건으로 고르기';
+        cb.onclick = function (ev) { ev.stopPropagation(); if (cb.checked) sel[i.id] = true; else delete sel[i.id]; drawBulk(list); };
+        c.appendChild(cb); body = el('div'); c.appendChild(body);
+      }
+      body.appendChild(r1); body.appendChild(r2);
       c.onclick = function () { showDetail(i); };
-      c.onkeydown = function (ev) { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); showDetail(i); } };
+      c.onkeydown = function (ev) { if (ev.target === c && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); showDetail(i); } };
       box.appendChild(c);
     });
   }
+  function autoLabel(a) { return a === '판독대기' ? '판독 대기' : a === '판독완료' ? '자동 입력' : a === '확인필요' ? '확인 필요' : a; }
+  /** 열어 보지 않고 바로 제출해도 되는 초안: 내용이 다 찼고, 자동 판독이 「확인 필요」로 남기지 않은 것. */
+  function canBulk(i) { return (i.status === '작성중' || i.status === '반려') && i.auto !== '판독대기' && i.auto !== '확인필요' && !!i.vendor && i.total > 0 && (i.receipts.length > 0 || !!i.noReceipt); }
+  function drawBulk(list) {
+    var on = filter === 'drafts' && list.some(canBulk); show('xBulk', on); if (!on) return;
+    var n = list.filter(function (i) { return sel[i.id] && canBulk(i); }).length;
+    $('xBulkGo').textContent = n ? '고른 ' + n + '건 제출' : '제출할 초안을 골라 주세요'; $('xBulkGo').disabled = !n || busy;
+    $('xBulkAll').textContent = n === list.filter(canBulk).length ? '모두 풀기' : '모두 고르기';
+  }
+  $('xBulkAll').onclick = function () {
+    var ok = items.filter(canBulk), all = ok.every(function (i) { return sel[i.id]; });
+    sel = {}; if (!all) ok.forEach(function (i) { sel[i.id] = true; }); render();
+  };
+  $('xBulkGo').onclick = function () {
+    var ids = items.filter(function (i) { return sel[i.id] && canBulk(i); }).map(function (i) { return i.id; });
+    if (!ids.length || busy) return;
+    if (!confirm(ids.length + '건을 제출할까요? 제출하면 검토 단계로 넘어가고 고칠 수 없습니다.')) return;
+    busy = true; $('xBulkGo').disabled = true; var okN = 0, bad = [];
+    (function next() {
+      var id = ids.shift();
+      if (!id) { busy = false; sel = {}; var note = okN + '건을 제출했습니다.' + (bad.length ? ' ' + bad.length + '건은 제출하지 못했습니다: ' + bad[0] : ''); pendingNote = note; pendingNoteOk = !bad.length; load(); refreshBadge(); return; }
+      setMsg('xMsg', '제출하는 중… (남은 ' + (ids.length + 1) + '건)', true);
+      submitAsk(id).then(function (r) { if (r && r.ok) okN += 1; else { bad.push((r && r.message) || '처리하지 못했습니다.'); if (E.authLost(r)) { busy = false; return; } } next(); });
+    })();
+  };
+  var pendingNote = '', pendingNoteOk = true; // 목록을 다시 받은 뒤에 보여 줄 안내
+
+  // ── 영수증만 올리기: 사진 한 장 = 초안 한 건. 줄여서 뒤에서 올리고 화면은 바로 풀어 준다 ──
+  $('xQuick').onclick = function () { $('xQuickFiles').click(); };
+  $('xQuickFiles').onchange = function () {
+    var files = Array.prototype.slice.call($('xQuickFiles').files || []); $('xQuickFiles').value = '';
+    if (!files.length) return;
+    var over = files.length > 20; if (over) files = files.slice(0, 20);
+    setMsg('xMsg', '사진을 준비하는 중…', true);
+    var jobs = [], badN = 0;
+    (function next(k) {
+      if (k >= files.length) {
+        if (jobs.length) qPush(jobs);
+        setMsg('xMsg', (jobs.length ? jobs.length + '장을 올리고 있습니다. 기다리지 않고 다른 일을 하셔도 됩니다.' : '') + (badN ? ' ' + badN + '장은 읽지 못해 뺐습니다.' : '') + (over ? ' 한 번에 20장까지만 올립니다.' : ''), jobs.length > 0 && !badN);
+        return;
+      }
+      shrink(files[k]).then(function (d) { jobs.push({ kind: 'quick', photo: { name: files[k].name, data: d } }); }, function () { badN += 1; }).then(function () { next(k + 1); });
+    })(0);
+  };
 
   // ── 상세 ──
   function kv(box, k, v) { var g = box.querySelector('.kv') || box.appendChild(el('div', 'kv')); g.appendChild(el('b', '', k)); g.appendChild(el('span', '', v)); }
@@ -148,6 +299,7 @@
     if (i.reviewer) kv(p, '검토', i.reviewer + ' · ' + i.reviewedAt);
     if (i.approver && i.status === '승인') kv(p, '승인', i.approver + ' · ' + i.approvedAt);
     if (i.noReceipt) kv(p, '영수증 없음 사유', i.noReceipt);
+    if (i.auto) kv(p, '자동 입력', autoLabel(i.auto) + (i.autoNote ? ' · ' + i.autoNote : ''));
 
     var rc = el('div'); p.appendChild(el('label', '', '영수증 사진 ' + i.receipts.length + '장'));
     i.receipts.forEach(function (r, idx) {
@@ -202,6 +354,7 @@
       btn('승인', 'ok', function () { act('approveExpense', { id: i.id, decision: 'ok' }, '승인했습니다.'); });
       btn('반려', 'warn', function () { reasonBox('반려 확정', 'approveExpense'); });
     }
+    if (M && M.quick && i.vendor) btn('복사해서 새로 쓰기', '', function () { openForm(null, i); });
     if (i.status === '검토대기' && mine && me.role !== '현장소장') p.appendChild(el('div', 'desc', '공무(또는 현장소장)의 검토를 기다리는 중입니다. 제출한 경비는 고칠 수 없습니다.'));
     if (i.status === '검토대기' && byMgr && me.role === '공무') p.appendChild(el('div', 'desc', '현장소장이 쓴 경비라 현장소장이 직접 검토합니다.'));
     if (i.status === '승인대기' && me.role !== '현장소장') p.appendChild(el('div', 'desc', '현장소장 승인을 기다리는 중입니다.'));
@@ -222,22 +375,26 @@
   $('fCat').addEventListener('change', function () { if (M && !$('fBudget').dataset.manual) $('fBudget').value = M.catBudget[$('fCat').value] || M.defaultBudget; });
   $('fBudget').addEventListener('change', function () { $('fBudget').dataset.manual = '1'; });
 
-  function openForm(it) {
+  function openForm(it, copy) {
     withMaster(function () {
+      var src = it || copy || null; loadHints();
       F = { id: it ? it.id : '', keep: it ? it.receipts.slice() : [], drop: [], add: [] };
       fillSelect($('fCat'), M.categories); fillSelect($('fPay'), M.payMethods); fillSelect($('fBudget'), M.budgetItems);
       fillSelect($('fSite'), [{ v: '0', t: '공통 (개소 없음)' }].concat(M.sites.map(function (s) { return { v: String(s.no), t: s.code + ' · ' + s.route + ' ' + s.location + ' (' + s.work + ')' }; })), function (o) { return o.t; });
       $('fBudget').dataset.manual = '';
-      $('fTitle').textContent = it ? (it.status === '반려' ? '경비 고치기 (반려됨)' : '경비 고치기') : '경비 등록';
+      $('fTitle').textContent = it ? (it.status === '반려' ? '경비 고치기 (반려됨)' : '경비 고치기') : (copy ? '경비 등록 (복사)' : '경비 등록');
+      var an = $('fAuto'); an.textContent = ''; show('fAuto', !!(it && it.auto));
+      if (it && it.auto) an.textContent = (it.auto === '판독대기' ? '아직 영수증을 읽지 않은 초안입니다. 직접 채워서 저장해도 됩니다.' : '영수증에서 자동으로 채운 값입니다. 사진과 맞는지 확인하고 저장해 주세요.') + (it.autoNote ? ' (' + it.autoNote + ')' : '');
+      $('fMemoList').textContent = ''; show('fSug', false);
       $('fDate').max = M.today; $('fDate').value = it ? it.date : M.today;
-      $('fCat').value = it ? it.category : M.categories[0]; $('fPay').value = it ? it.pay : M.payMethods[0]; $('fSite').value = String(it ? it.site : 0);
-      if (!it && E.workSite && E.workSite() && $('fSite').querySelector('option[value="' + E.workSite() + '"]')) $('fSite').value = String(E.workSite()); // 홈에서 고른 작업 개소
-      $('fBudget').value = it ? it.budget : (M.catBudget[$('fCat').value] || M.defaultBudget); if (it) $('fBudget').dataset.manual = '1';
-      $('fVendor').value = it ? it.vendor : ''; $('fMemo').value = it ? it.memo : ''; $('fTotal').value = it ? String(it.total) : '';
-      var mode = 'auto'; if (it) { if (it.vat === 0) mode = 'none'; else if (it.vat !== it.total - Math.round(it.total / 1.1)) mode = 'manual'; }
+      $('fCat').value = (src && hasOpt($('fCat'), src.category)) ? src.category : M.categories[0]; $('fPay').value = (src && hasOpt($('fPay'), src.pay)) ? src.pay : M.payMethods[0]; $('fSite').value = String(src && hasOpt($('fSite'), src.site) ? src.site : 0);
+      if (!src && E.workSite && E.workSite() && $('fSite').querySelector('option[value="' + E.workSite() + '"]')) $('fSite').value = String(E.workSite()); // 홈에서 고른 작업 개소
+      var hasB = !!(src && hasOpt($('fBudget'), src.budget)); $('fBudget').value = hasB ? src.budget : (M.catBudget[$('fCat').value] || M.defaultBudget); if (hasB) $('fBudget').dataset.manual = '1';
+      $('fVendor').value = src ? src.vendor : ''; $('fMemo').value = src ? src.memo : ''; $('fTotal').value = (it && it.total) ? String(it.total) : ''; // 복사할 때 금액은 비워 둔다
+      var mode = 'auto'; if (it && it.total > 0) { if (it.vat === 0) mode = 'none'; else if (it.vat !== it.total - Math.round(it.total / 1.1)) mode = 'manual'; }
       $('fVatMode').value = mode; calcVat(); if (it && mode === 'manual') { $('fSupply').value = String(it.supply); $('fVat').value = String(it.vat); }
       $('fNoReceipt').value = it ? (it.noReceipt || '') : ''; $('fFiles').value = ''; setMsg('fMsg', '');
-      drawThumbs(); pane('form');
+      drawThumbs(); pane('form'); if (copy) $('fTotal').focus();
     }, 'xMsg');
   }
   $('xNew').onclick = function () { openForm(null); };
@@ -312,7 +469,9 @@
     var v = collect(), bad = problem(v); if (bad) { setMsg('fMsg', bad); return; }
     var data = { id: F.id || undefined, date: v.date, category: v.category, pay: v.pay, site: v.site, budget: v.budget, vendor: v.vendor, memo: v.memo, total: v.total, supply: v.supply, vat: v.vat,
       noReceipt: v.noReceipt, removeReceipts: F.drop, newReceipts: F.add.map(function (a) { return { name: a.name, data: a.data }; }), force: !!force };
-    busy = true; $('fDraft').disabled = $('fSubmit').disabled = true; setMsg('fMsg', F.add.length ? '사진과 함께 저장하는 중… (몇 초 걸립니다)' : '저장하는 중…', true);
+    var later = (M.quick && F.add.length) ? F.add.slice() : null; // 서버 v2.32부터: 내용을 먼저 저장하고 사진은 뒤에서 올린다
+    if (later) data.newReceipts = [];
+    busy = true; $('fDraft').disabled = $('fSubmit').disabled = true; setMsg('fMsg', (!later && F.add.length) ? '사진과 함께 저장하는 중… (몇 초 걸립니다)' : '저장하는 중…', true);
     function done() { busy = false; $('fDraft').disabled = $('fSubmit').disabled = false; }
     E.api('saveExpense', data, 70000).then(function (r) {
       if (E.authLost(r)) { done(); return; }
@@ -322,6 +481,12 @@
         setMsg('fMsg', r.message || '저장하지 못했습니다.'); return;
       }
       var saved = r.item; F = null;
+      if (later) {
+        var jobs = later.map(function (a) { return { kind: 'add', id: saved.id, photo: { name: a.name, data: a.data } }; });
+        if (submit) jobs.push({ kind: 'submit', id: saved.id });
+        done(); pendingNote = submit ? '저장했습니다. 사진을 다 올리면 바로 제출합니다.' : '임시저장했습니다. 사진은 뒤에서 올리고 있습니다.'; pendingNoteOk = true;
+        pane('list'); load(); qPush(jobs); return;
+      }
       if (!submit) { done(); showDetail(saved); setMsg('dMsg', '임시저장했습니다. 제출하면 검토 단계로 넘어갑니다.', true); return; }
       submitAsk(saved.id).then(function (s) {
         done(); if (E.authLost(s)) return;
